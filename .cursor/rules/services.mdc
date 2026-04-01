@@ -1,0 +1,43 @@
+---
+description: Rules for service classes — business logic, external integrations, LLM calls.
+globs:
+  - app/services/**/*.py
+alwaysApply: false
+---
+
+# Service Layer Rules
+
+## General
+- One service class per domain concern
+- All methods are `async def` with full type hints
+- Use dependency injection — services receive clients, not construct them
+- Never use `httpx` directly — go through `search_client.py` or `llm_client.py`
+
+## search_client.py
+- Wraps all Semantic Search API calls
+- Uses `httpx.AsyncClient` with connection pooling
+- Circuit breaker: retry 3x with exponential backoff via `tenacity`
+- Base URL from `SEARCH_API_BASE_URL` env var
+
+## llm_client.py
+- Wraps Gemini (`google-genai`) and optional OpenAI-compatible local endpoints
+- Load prompts from `prompts/*.md` at startup
+- Always validate LLM output against Pydantic schemas
+- Retry 2x with backoff for API errors
+- Log: input tokens, output tokens, latency, cv_id
+
+## entity_extractor.py
+- Two-pass: regex (email, phone, URLs) → LLM structured extraction
+- Include detected language in LLM prompt
+- Use `model_validate(data, strict=False)` for LLM responses
+- Reference: `prompts/cv_entity_extraction.md`
+
+## ranking_engine.py
+- Phase 1: Semantic recall via search_client (fast, < 500ms)
+- Phase 2: LLM evaluation with `asyncio.Semaphore(concurrency=5)`
+- Cache results in `cv_ranking_results` table
+- Reference: `prompts/cv_ranking.md`
+
+## answer_scorer.py
+- Hybrid: embedding score ≥ 0.7 → accept; 0.3-0.7 → LLM; < 0.3 → flag
+- Reference: `prompts/answer_scoring.md`

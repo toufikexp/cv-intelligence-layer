@@ -1,0 +1,832 @@
+openapi: "3.1.0"
+info:
+  title: CV Intelligence Layer API
+  description: |
+    Domain-specific middleware for CV/resume processing, entity extraction,
+    candidate ranking, and test answer scoring. Sits on top of the Semantic
+    Search as a Service platform.
+  version: "1.0.0"
+  contact:
+    name: Toufik
+    url: https://github.com/toufikexp/Semantic-Search-as-service
+
+servers:
+  - url: http://localhost:8001
+    description: Local development
+  - url: http://cv-api:8001
+    description: Docker internal
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: CV Management
+    description: Upload, retrieve, and manage CV documents
+  - name: Search
+    description: Search and filter indexed CVs
+  - name: Ranking
+    description: Rank candidates against job descriptions
+  - name: Answer Scoring
+    description: Score candidate test answers against references
+  - name: Collections
+    description: Manage CV collections (proxied to Semantic Search)
+  - name: Health
+    description: Health and readiness checks
+
+paths:
+  # ── CV Management ──────────────────────────────────────────────
+  /api/v1/cv/upload:
+    post:
+      tags: [CV Management]
+      summary: Upload CV
+      description: |
+        Upload a CV file (PDF or DOCX) for processing. Returns immediately
+        with a job_id. The pipeline extracts text, runs OCR if needed,
+        extracts structured entities, stores the profile, and indexes it
+        in the Semantic Search platform.
+      operationId: upload_cv
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, collection_id]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: CV file (PDF or DOCX, max 20MB)
+                collection_id:
+                  type: string
+                  format: uuid
+                  description: Target collection ID
+                external_id:
+                  type: string
+                  maxLength: 255
+                  description: Optional external ID from the hiring platform
+                callback_url:
+                  type: string
+                  format: uri
+                  description: Optional webhook URL for completion notification
+      responses:
+        "202":
+          description: CV accepted for processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVUploadResponse'
+        "400":
+          description: Invalid file type or size
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "409":
+          description: Duplicate file (same hash already exists in collection)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVDuplicateResponse'
+
+  /api/v1/cv/{cv_id}:
+    get:
+      tags: [CV Management]
+      summary: Get CV profile
+      description: Retrieve the structured candidate profile for a processed CV.
+      operationId: get_cv
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+        - $ref: '#/components/parameters/CVId'
+      responses:
+        "200":
+          description: Candidate profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVProfileResponse'
+        "404":
+          description: CV not found
+
+    delete:
+      tags: [CV Management]
+      summary: Delete CV
+      description: Remove CV profile and its search index entry.
+      operationId: delete_cv
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+        - $ref: '#/components/parameters/CVId'
+      responses:
+        "204":
+          description: CV deleted
+        "404":
+          description: CV not found
+
+  /api/v1/cv/{cv_id}/status:
+    get:
+      tags: [CV Management]
+      summary: Get CV processing status
+      description: Check the current processing status of a CV upload.
+      operationId: get_cv_status
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+        - $ref: '#/components/parameters/CVId'
+      responses:
+        "200":
+          description: Processing status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVStatusResponse'
+        "404":
+          description: CV not found
+
+  # ── Search ─────────────────────────────────────────────────────
+  /api/v1/cv/search:
+    post:
+      tags: [Search]
+      summary: Search CVs
+      description: |
+        Search indexed CVs with semantic query, metadata filters, and facets.
+        Proxies to the Semantic Search API with CV-specific enhancements.
+      operationId: search_cvs
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CVSearchRequest'
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVSearchResponse'
+
+  # ── Ranking ────────────────────────────────────────────────────
+  /api/v1/cv/rank:
+    post:
+      tags: [Ranking]
+      summary: Rank candidates against job description
+      description: |
+        Submit a job description to rank candidates. Uses semantic search
+        for recall, then LLM evaluation for multi-criteria scoring.
+        For large candidate sets (>30), this is async and returns a job_id.
+      operationId: rank_candidates
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RankingRequest'
+      responses:
+        "200":
+          description: Ranking results (synchronous for small sets)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RankingResponse'
+        "202":
+          description: Ranking job submitted (async for large sets)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsyncJobResponse'
+
+  # ── Answer Scoring ─────────────────────────────────────────────
+  /api/v1/cv/score-answers:
+    post:
+      tags: [Answer Scoring]
+      summary: Score candidate answers
+      description: |
+        Score candidate test answers against reference answers using
+        semantic similarity and optional LLM grading.
+      operationId: score_answers
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnswerScoringRequest'
+      responses:
+        "200":
+          description: Scoring results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnswerScoringResponse'
+
+  # ── Collections ────────────────────────────────────────────────
+  /api/v1/collections:
+    post:
+      tags: [Collections]
+      summary: Create CV collection
+      description: Creates a new collection optimized for CV indexing. Proxied to Semantic Search API.
+      operationId: create_collection
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CollectionCreateRequest'
+      responses:
+        "201":
+          description: Collection created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CollectionCreateResponse'
+
+    get:
+      tags: [Collections]
+      summary: List CV collections
+      operationId: list_collections
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: List of collections
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CollectionListResponse'
+
+  # ── Health ─────────────────────────────────────────────────────
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      operationId: health_check
+      security: []
+      responses:
+        "200":
+          description: Service is healthy
+
+  /ready:
+    get:
+      tags: [Health]
+      summary: Readiness check
+      description: Checks DB, Redis, and Semantic Search API connectivity
+      operationId: readiness_check
+      security: []
+      responses:
+        "200":
+          description: Service is ready
+        "503":
+          description: One or more dependencies unavailable
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  parameters:
+    Authorization:
+      name: authorization
+      in: header
+      required: true
+      schema:
+        type: string
+        description: "Bearer <api_key>"
+    CVId:
+      name: cv_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    # ── CV Management Schemas ────────────────────────────────────
+    CVUploadResponse:
+      type: object
+      required: [cv_id, job_id, status]
+      properties:
+        cv_id:
+          type: string
+          format: uuid
+        job_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, extracting, indexing, ready, failed]
+          default: pending
+        file_hash:
+          type: string
+
+    CVDuplicateResponse:
+      type: object
+      required: [cv_id, message]
+      properties:
+        cv_id:
+          type: string
+          format: uuid
+          description: Existing CV ID with the same file hash
+        message:
+          type: string
+
+    CVProfileResponse:
+      type: object
+      required: [cv_id, collection_id, status, profile, created_at]
+      properties:
+        cv_id:
+          type: string
+          format: uuid
+        external_id:
+          type: string
+        collection_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, extracting, indexing, ready, failed]
+        language:
+          type: string
+        extraction_method:
+          type: string
+        profile:
+          $ref: '#/components/schemas/CandidateProfile'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CVStatusResponse:
+      type: object
+      required: [cv_id, status]
+      properties:
+        cv_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, extracting, ocr_processing, entity_extraction, indexing, ready, failed]
+        current_stage:
+          type: string
+        error_message:
+          type: string
+        progress_pct:
+          type: integer
+          minimum: 0
+          maximum: 100
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+
+    CandidateProfile:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        location:
+          type: string
+        current_title:
+          type: string
+        summary:
+          type: string
+        linkedin_url:
+          type: string
+        github_url:
+          type: string
+        portfolio_url:
+          type: string
+        skills:
+          type: array
+          items:
+            type: string
+        experience:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExperienceEntry'
+        education:
+          type: array
+          items:
+            $ref: '#/components/schemas/EducationEntry'
+        languages:
+          type: array
+          items:
+            $ref: '#/components/schemas/LanguageEntry'
+        certifications:
+          type: array
+          items:
+            type: string
+        total_experience_years:
+          type: number
+
+    ExperienceEntry:
+      type: object
+      required: [company, role]
+      properties:
+        company:
+          type: string
+        role:
+          type: string
+        start_date:
+          type: string
+        end_date:
+          type: string
+        description:
+          type: string
+        location:
+          type: string
+
+    EducationEntry:
+      type: object
+      required: [institution]
+      properties:
+        institution:
+          type: string
+        degree:
+          type: string
+        field:
+          type: string
+        year:
+          type: string
+
+    LanguageEntry:
+      type: object
+      required: [language, level]
+      properties:
+        language:
+          type: string
+        level:
+          type: string
+          enum: [native, fluent, advanced, intermediate, beginner]
+
+    # ── Search Schemas ───────────────────────────────────────────
+    CVSearchRequest:
+      type: object
+      required: [collection_id, query]
+      properties:
+        collection_id:
+          type: string
+          format: uuid
+        query:
+          type: string
+          minLength: 1
+          description: Semantic search query (e.g., "Python developer with 5 years experience")
+        filters:
+          type: object
+          description: |
+            Metadata filters. Supported keys: skills (array), experience_years (range),
+            language (string), location (string), education_level (string)
+          example:
+            skills: ["Python", "SQL"]
+            experience_years: {"gte": 3}
+            language: "fr"
+        limit:
+          type: integer
+          default: 20
+          maximum: 100
+        offset:
+          type: integer
+          default: 0
+        facets:
+          type: array
+          items:
+            type: string
+          description: Fields to aggregate (e.g., ["skills", "location", "education_level"])
+
+    CVSearchResponse:
+      type: object
+      required: [results, total, query_id, took_ms]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/CVSearchResult'
+        facets:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: object
+              properties:
+                value:
+                  type: string
+                count:
+                  type: integer
+        total:
+          type: integer
+        query_id:
+          type: string
+          format: uuid
+        took_ms:
+          type: integer
+
+    CVSearchResult:
+      type: object
+      properties:
+        cv_id:
+          type: string
+          format: uuid
+        score:
+          type: number
+        candidate_name:
+          type: string
+        current_title:
+          type: string
+        location:
+          type: string
+        skills:
+          type: array
+          items:
+            type: string
+        experience_years:
+          type: number
+        highlights:
+          type: array
+          items:
+            type: string
+
+    # ── Ranking Schemas ──────────────────────────────────────────
+    RankingRequest:
+      type: object
+      required: [collection_id, job_description]
+      properties:
+        collection_id:
+          type: string
+          format: uuid
+        job_description:
+          type: string
+          description: Full job description text
+        required_skills:
+          type: array
+          items:
+            type: string
+        preferred_skills:
+          type: array
+          items:
+            type: string
+        min_experience_years:
+          type: integer
+          default: 0
+        required_languages:
+          type: array
+          items:
+            type: string
+        education_requirements:
+          type: string
+        recall_size:
+          type: integer
+          default: 30
+          maximum: 100
+          description: Number of candidates to retrieve from semantic search
+        weights:
+          type: object
+          description: Custom scoring weights (override defaults)
+          properties:
+            semantic:
+              type: number
+            skills:
+              type: number
+            experience:
+              type: number
+            education:
+              type: number
+            language:
+              type: number
+
+    RankingResponse:
+      type: object
+      required: [results, job_id, took_ms]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/RankedCandidate'
+        job_id:
+          type: string
+          format: uuid
+        took_ms:
+          type: integer
+
+    RankedCandidate:
+      type: object
+      properties:
+        cv_id:
+          type: string
+          format: uuid
+        rank:
+          type: integer
+        composite_score:
+          type: number
+        semantic_score:
+          type: number
+        skills_score:
+          type: number
+        experience_score:
+          type: number
+        education_score:
+          type: number
+        language_score:
+          type: number
+        recommendation:
+          type: string
+          enum: [strong_match, good_match, partial_match, weak_match]
+        reasoning:
+          type: string
+        candidate_name:
+          type: string
+        current_title:
+          type: string
+        skills_analysis:
+          type: object
+          properties:
+            matched_required:
+              type: array
+              items:
+                type: string
+            missing_required:
+              type: array
+              items:
+                type: string
+
+    # ── Answer Scoring Schemas ───────────────────────────────────
+    AnswerScoringRequest:
+      type: object
+      required: [collection_id, questions]
+      properties:
+        collection_id:
+          type: string
+          format: uuid
+          description: Collection containing reference answers
+        cv_id:
+          type: string
+          format: uuid
+          description: Candidate being scored
+        questions:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/AnswerQuestion'
+        use_llm_grading:
+          type: boolean
+          default: true
+          description: Enable LLM grading for ambiguous scores
+
+    AnswerQuestion:
+      type: object
+      required: [question_id, question_text, reference_answer, candidate_answer]
+      properties:
+        question_id:
+          type: string
+        question_text:
+          type: string
+        question_type:
+          type: string
+          enum: [factual, conceptual, analytical, technical, open_ended]
+          default: conceptual
+        reference_answer:
+          type: string
+        candidate_answer:
+          type: string
+        max_points:
+          type: number
+          default: 10
+        grading_rubric:
+          type: string
+
+    AnswerScoringResponse:
+      type: object
+      required: [results, total_score, max_score]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnswerScore'
+        total_score:
+          type: number
+        max_score:
+          type: number
+        score_percentage:
+          type: number
+        cv_id:
+          type: string
+          format: uuid
+
+    AnswerScore:
+      type: object
+      properties:
+        question_id:
+          type: string
+        similarity_score:
+          type: number
+        points_awarded:
+          type: number
+        max_points:
+          type: number
+        scoring_method:
+          type: string
+          enum: [embedding, llm, hybrid]
+        accuracy_assessment:
+          type: string
+        completeness_assessment:
+          type: string
+        feedback:
+          type: string
+        key_concepts:
+          type: object
+          properties:
+            covered:
+              type: array
+              items:
+                type: string
+            missed:
+              type: array
+              items:
+                type: string
+
+    # ── Collection Schemas ───────────────────────────────────────
+    CollectionCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+        language:
+          type: string
+          default: auto
+
+    CollectionCreateResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    CollectionListResponse:
+      type: object
+      properties:
+        collections:
+          type: array
+          items:
+            $ref: '#/components/schemas/CollectionCreateResponse'
+        total:
+          type: integer
+
+    # ── Common Schemas ───────────────────────────────────────────
+    AsyncJobResponse:
+      type: object
+      required: [job_id, status]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          default: processing
+
+    ErrorResponse:
+      type: object
+      required: [detail, code]
+      properties:
+        detail:
+          type: string
+        code:
+          type: string

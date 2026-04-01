@@ -1,0 +1,39 @@
+---
+description: Rules for Celery async tasks — ingestion pipeline, retry logic, idempotency.
+globs:
+  - app/tasks/**/*.py
+alwaysApply: false
+---
+
+# Celery Task Rules
+
+## Pipeline architecture
+Tasks are linked via `chain()`:
+```
+validate_file → extract_text → (ocr_if_needed) → detect_language → extract_entities → store_profile → index_in_search → update_status
+```
+
+## Idempotency (CRITICAL)
+Every task MUST check current state before acting:
+```python
+@app.task(bind=True, max_retries=3)
+def extract_text(self, cv_id: str):
+    cv = get_cv(cv_id)
+    if cv.status not in ("pending", "extracting"):
+        return  # Already processed or failed — skip
+    # ... do work
+```
+
+## Error handling
+- Catch exceptions, update job status in DB, THEN re-raise for retry
+- Use `self.retry(exc=exc, countdown=2**self.request.retries)`
+- After max retries: set status="failed", log error, move to dead letter queue
+
+## Logging
+- Use `celery.utils.log.get_task_logger(__name__)`
+- Include `cv_id` and `job_id` in every log message
+- Log stage transitions: "cv_id={cv_id} stage=extract_text status=started"
+
+## OCR routing
+- OCR tasks go to the `ocr` queue: `@app.task(queue="ocr")`
+- GPU worker processes the `ocr` queue separately

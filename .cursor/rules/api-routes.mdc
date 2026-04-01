@@ -1,0 +1,42 @@
+---
+description: Rules for API route handlers. Keep handlers thin, delegate to services.
+globs:
+  - app/api/**/*.py
+alwaysApply: false
+---
+
+# API Route Rules
+
+## Handler pattern
+- Route handlers are THIN — validation, auth, delegation only
+- All business logic lives in `app/services/` — never in route handlers
+- Return `202 Accepted` with `job_id` for all async operations
+- Use `Depends()` for auth, DB session, and service injection
+
+## Auth
+- `Authorization: Bearer <api_key>` header on every endpoint
+- Consistent with Semantic Search API pattern
+
+## Error responses
+```python
+raise HTTPException(status_code=400, detail={"detail": "msg", "code": "INVALID_FILE_TYPE"})
+```
+
+## Response schemas
+- Define all request/response models in `app/models/schemas.py`
+- Reference `schemas/openapi_cv_layer.yaml` for the full contract
+
+## Example handler pattern
+```python
+@router.post("/cv/upload", status_code=202)
+async def upload_cv(
+    file: UploadFile,
+    collection_id: UUID,
+    auth: str = Depends(get_api_key),
+    db: AsyncSession = Depends(get_db),
+) -> CVUploadResponse:
+    """Upload a CV for processing."""
+    validated = await file_validation.validate(file)
+    cv_id, job_id = await cv_service.initiate_processing(db, validated, collection_id)
+    return CVUploadResponse(cv_id=cv_id, job_id=job_id, status="pending")
+```

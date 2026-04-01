@@ -1,0 +1,32 @@
+---
+description: Rules for working with LLM prompt templates in the prompts/ directory.
+globs:
+  - prompts/**/*.md
+alwaysApply: false
+---
+
+# LLM Prompt Template Rules
+
+## Structure
+Each prompt file has:
+1. **System prompt** — role and output format instruction
+2. **User prompt template** — with `{placeholder}` variables
+3. **Few-shot examples** — in both French and English
+4. **Usage notes** — integration guidance
+
+## Prompt files
+- `cv_entity_extraction.md` — Extracts structured CandidateProfile from CV text
+- `cv_ranking.md` — Multi-criteria candidate evaluation against job descriptions
+- `answer_scoring.md` — Scores candidate answers vs reference answers
+
+## Rules for editing prompts
+- Always request JSON output — include "Return ONLY valid JSON" in the system prompt
+- Include few-shot examples in BOTH French and English
+- Include `{detected_language}` placeholder — LLM needs to know the CV language
+- Keep the JSON schema in the prompt synchronized with `schemas/candidate_profile.json`
+- After editing: update the corresponding Pydantic model in `app/models/schemas.py`
+
+## Rules for loading prompts in code
+- Load at startup in `app/services/llm_client.py`
+- Never hardcode prompt text in Python files
+- Use string `.format()` or f-strings to fill placeholders

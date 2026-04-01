@@ -1,0 +1,76 @@
+# CV Intelligence Layer — Cursor Rules
+
+## Project Context
+You are working on the **CV Intelligence Layer**, a Python FastAPI middleware that sits between a Hiring Platform and an existing Semantic Search as a Service API. Read `CLAUDE.md` for full project context before making changes.
+
+## Language & Framework
+- Python 3.11+ with full type hints on every function signature
+- FastAPI for the REST API with Pydantic v2 models
+- SQLAlchemy 2.0 async ORM with asyncpg
+- Celery + Redis for async task processing
+- pytest + pytest-asyncio for tests
+
+## Code Style
+- Use `snake_case` for all Python identifiers
+- Use `PascalCase` for classes and Pydantic models
+- Prefer `async def` for all I/O functions
+- Return types must be explicit — no bare `-> None` omissions
+- Imports: stdlib → third-party → local, separated by blank lines
+- One class per file for services, group related schemas in one file
+- Docstrings on all public functions (Google style)
+
+## Architecture Rules (CRITICAL)
+1. **Never import from or modify the Semantic Search codebase.** All interaction is via HTTP through `app/services/search_client.py`.
+2. **All HTTP calls to external services go through dedicated client classes** in `app/services/` — never use `httpx` directly in API routes or tasks.
+3. **All LLM prompts live in `prompts/` as Markdown files.** Load them at startup. Never hardcode prompt text in Python files.
+4. **Celery tasks must be idempotent.** Check current state before acting. Safe to retry.
+5. **Every database change requires an Alembic migration.** No raw DDL.
+6. **Pydantic models validate all external input AND all LLM output.** Use `model_validate()` with `strict=False` for LLM responses to handle partial extraction.
+
+## File Organization
+- API endpoints: `app/api/` — thin handlers that delegate to services
+- Business logic: `app/services/` — one service per domain concern
+- Database models: `app/models/database.py`
+- Request/Response schemas: `app/models/schemas.py`
+- Celery tasks: `app/tasks/ingestion.py`
+- Utilities: `app/utils/`
+
+## Error Handling
+- Use FastAPI `HTTPException` for API errors with consistent format: `{"detail": "msg", "code": "ERROR_CODE"}`
+- Service-level exceptions inherit from `app.exceptions.CVLayerError`
+- Celery tasks catch exceptions, update job status in DB, and re-raise for retry
+- Log all errors with structured JSON including `cv_id` and `job_id` correlation IDs
+
+## Testing
+- Every new service method gets a unit test
+- Mock external services (Semantic Search API, Anthropic API) using `pytest-mock` or `respx`
+- API tests use `httpx.AsyncClient` with `app.main:app`
+- Use factory fixtures for CandidateProfile, SearchResponse, etc.
+
+## Bilingual (FR/EN)
+- LLM prompts include detected language as context
+- Entity extraction prompts have few-shot examples in both FR and EN
+- OCR uses `fra+eng` language config
+- Never assume a CV is in English
+
+## Common Patterns
+
+### Adding a new API endpoint
+1. Add Pydantic request/response schemas in `app/models/schemas.py`
+2. Add route handler in the appropriate `app/api/*.py` file
+3. Business logic goes in `app/services/` — the handler only does validation, auth, and delegation
+4. Register the route in `app/api/router.py`
+5. Add tests
+
+### Adding a new pipeline stage
+1. Create a Celery task in `app/tasks/ingestion.py`
+2. Add it to the task chain in the correct position
+3. Update the status enum if needed
+4. Add DB migration if the stage produces new stored data
+5. Add tests with mocked upstream stages
+
+### Adding a new LLM prompt
+1. Create the prompt as a Markdown file in `prompts/`
+2. Add a loader function in `app/services/llm_client.py`
+3. Define the expected output as a Pydantic model in `app/models/schemas.py`
+4. Validate LLM output against the schema with graceful fallback

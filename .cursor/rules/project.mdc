@@ -1,0 +1,49 @@
+---
+description: Core project rules for the CV Intelligence Layer. Architecture constraints, code style, and critical rules that apply everywhere.
+globs:
+alwaysApply: true
+---
+
+# CV Intelligence Layer — Core Rules
+
+## What this project is
+A Python FastAPI middleware between a Hiring Platform (external team) and the existing Semantic Search as a Service API. See `SPEC.md` for full specs.
+
+## Architecture rules (CRITICAL — never violate)
+1. Never import from or modify the Semantic Search codebase. All interaction via HTTP through `app/services/search_client.py`
+2. All HTTP calls to external services go through dedicated client classes in `app/services/`
+3. All LLM prompts live in `prompts/*.md` — loaded at startup, never hardcoded
+4. Celery tasks must be idempotent — check state before acting
+5. Pydantic v2 validates all external input AND all LLM output
+6. Every DB change needs an Alembic migration — no raw DDL
+7. The Hiring Platform never calls Semantic Search directly
+
+## Tech stack
+- Python 3.11+, FastAPI, uvicorn
+- PostgreSQL 16 + JSONB, SQLAlchemy 2.0 async + asyncpg
+- Celery + Redis for async pipeline
+- PyMuPDF, python-docx, Surya OCR, EasyOCR
+- Google Gemini API (default) for extraction/ranking/scoring; optional OpenAI-compatible HTTP for local LLM
+
+## Code style
+- Type hints on every function signature
+- `async def` for all I/O functions
+- Google-style docstrings on public functions
+- Imports: stdlib → third-party → local, blank line between groups
+- Error format: `{"detail": "msg", "code": "ERROR_CODE"}`
+- Structured JSON logging with `cv_id` and `job_id`
+
+## Bilingual (FR/EN)
+- Detect language with fasttext before LLM calls
+- Include detected language in LLM prompt context
+- OCR uses `fra+eng` — never assume English
+
+## Key commands
+```bash
+uvicorn app.main:app --reload --port 8001
+pytest tests/ -v
+celery -A app.tasks.celery_app worker --loglevel=info
+alembic upgrade head
+mypy app/ --ignore-missing-imports
+ruff check app/ tests/
+```

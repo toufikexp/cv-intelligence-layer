@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cv-intelligence-layer/schemas/candidate_profile.json",
+  "title": "CandidateProfile",
+  "description": "Structured candidate profile extracted from a CV/resume by the CV Intelligence Layer",
+  "type": "object",
+  "required": ["name"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Full name of the candidate",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "email": {
+      "type": ["string", "null"],
+      "format": "email",
+      "description": "Email address"
+    },
+    "phone": {
+      "type": ["string", "null"],
+      "description": "Phone number in international format (e.g., +213 555 123 456)",
+      "maxLength": 50
+    },
+    "location": {
+      "type": ["string", "null"],
+      "description": "City, Country or region",
+      "maxLength": 255
+    },
+    "current_title": {
+      "type": ["string", "null"],
+      "description": "Most recent job title",
+      "maxLength": 255
+    },
+    "summary": {
+      "type": ["string", "null"],
+      "description": "Professional summary or objective, 1-3 sentences",
+      "maxLength": 2000
+    },
+    "linkedin_url": {
+      "type": ["string", "null"],
+      "format": "uri",
+      "description": "LinkedIn profile URL"
+    },
+    "github_url": {
+      "type": ["string", "null"],
+      "format": "uri",
+      "description": "GitHub profile URL"
+    },
+    "portfolio_url": {
+      "type": ["string", "null"],
+      "format": "uri",
+      "description": "Portfolio or personal website URL"
+    },
+    "skills": {
+      "type": "array",
+      "description": "List of normalized skill names",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100
+      },
+      "default": []
+    },
+    "experience": {
+      "type": "array",
+      "description": "Work experience entries ordered from most recent to oldest",
+      "items": {
+        "$ref": "#/$defs/ExperienceEntry"
+      },
+      "default": []
+    },
+    "education": {
+      "type": "array",
+      "description": "Education entries ordered from most recent to oldest",
+      "items": {
+        "$ref": "#/$defs/EducationEntry"
+      },
+      "default": []
+    },
+    "languages": {
+      "type": "array",
+      "description": "Languages spoken with proficiency levels",
+      "items": {
+        "$ref": "#/$defs/LanguageEntry"
+      },
+      "default": []
+    },
+    "certifications": {
+      "type": "array",
+      "description": "Professional certifications",
+      "items": {
+        "type": "string",
+        "maxLength": 500
+      },
+      "default": []
+    },
+    "total_experience_years": {
+      "type": ["number", "null"],
+      "description": "Estimated total years of professional experience",
+      "minimum": 0,
+      "maximum": 60
+    }
+  },
+  "$defs": {
+    "ExperienceEntry": {
+      "type": "object",
+      "required": ["company", "role"],
+      "properties": {
+        "company": {
+          "type": "string",
+          "description": "Company or organization name",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "role": {
+          "type": "string",
+          "description": "Job title or role",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "start_date": {
+          "type": ["string", "null"],
+          "description": "Start date in YYYY-MM or YYYY format",
+          "pattern": "^\\d{4}(-\\d{2})?$"
+        },
+        "end_date": {
+          "type": ["string", "null"],
+          "description": "End date in YYYY-MM, YYYY, or 'present'",
+          "pattern": "^(\\d{4}(-\\d{2})?|present)$"
+        },
+        "description": {
+          "type": ["string", "null"],
+          "description": "Key responsibilities and achievements",
+          "maxLength": 2000
+        },
+        "location": {
+          "type": ["string", "null"],
+          "description": "City, Country of the role",
+          "maxLength": 255
+        }
+      }
+    },
+    "EducationEntry": {
+      "type": "object",
+      "required": ["institution"],
+      "properties": {
+        "institution": {
+          "type": "string",
+          "description": "University or school name",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "degree": {
+          "type": ["string", "null"],
+          "description": "Degree type (Licence, Master, Doctorat, Bachelor, MBA, Ingénieur, BTS, DUT, etc.)",
+          "maxLength": 100
+        },
+        "field": {
+          "type": ["string", "null"],
+          "description": "Field of study",
+          "maxLength": 255
+        },
+        "year": {
+          "type": ["string", "null"],
+          "description": "Graduation year in YYYY format",
+          "pattern": "^\\d{4}$"
+        }
+      }
+    },
+    "LanguageEntry": {
+      "type": "object",
+      "required": ["language", "level"],
+      "properties": {
+        "language": {
+          "type": "string",
+          "description": "Language name in English",
+          "minLength": 1,
+          "maxLength": 50
+        },
+        "level": {
+          "type": "string",
+          "description": "Proficiency level",
+          "enum": ["native", "fluent", "advanced", "intermediate", "beginner"]
+        }
+      }
+    }
+  }
+}
