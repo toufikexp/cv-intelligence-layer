@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml /app/pyproject.toml
+COPY app/__init__.py /app/app/__init__.py
 RUN pip install --no-cache-dir -U pip && pip install --no-cache-dir .
 
 COPY app /app/app
@@ -20,4 +21,3 @@ COPY alembic.ini /app/alembic.ini
 EXPOSE 8001
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"]
-
