@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.models.db import CVProfile
+from app.models.database import CVProfile
 from app.models.schemas import CVSearchRequest
 from app.services.cv_search import CVSearchService
 

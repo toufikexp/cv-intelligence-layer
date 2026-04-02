@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.models.db import CVProcessingJob, CVProfile
+from app.models.database import CVProcessingJob, CVProfile
 
 
 class CVService:

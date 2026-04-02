@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from app.api.routes import api_router
+from app.api.router import api_router
 from app.utils.logging import configure_logging
 
 
