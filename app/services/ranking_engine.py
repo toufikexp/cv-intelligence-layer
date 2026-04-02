@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.models.db import CVProfile
+from app.models.database import CVProfile
 from app.models.schemas import (
     CandidateProfile,
     RankedCandidate,

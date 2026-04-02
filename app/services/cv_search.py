@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.db import CVProfile
+from app.models.database import CVProfile
 from app.models.schemas import CVSearchRequest, CVSearchResponse, CVSearchResult
 from app.services.search_client import SemanticSearchClient
 

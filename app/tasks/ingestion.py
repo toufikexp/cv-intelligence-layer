@@ -11,7 +11,7 @@ from celery.utils.log import get_task_logger
 from sqlalchemy import select, update
 
 from app.models.database import SessionLocal
-from app.models.db import CVProcessingJob, CVProfile
+from app.models.database import CVProcessingJob, CVProfile
 from app.services.document_processor import DocumentProcessor
 from app.services.entity_extractor import EntityExtractor
 from app.services.indexing_bridge import build_search_document
@@ -57,6 +57,7 @@ def start_cv_ingestion(
         ocr_if_needed.s(),
         detect_lang.s(),
         extract_entities.s(),
+        store_profile.s(),
         index_in_search.s(),
         finalize_status.s(),
     ).apply_async()
@@ -244,6 +245,55 @@ def extract_entities(self, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @celery_app.task(bind=True, max_retries=3)
+def store_profile(self, payload: dict[str, Any]) -> dict[str, Any]:
+    """Upsert CandidateProfile into PostgreSQL."""
+    cv_id = uuid.UUID(payload["cv_id"])
+    job_id = uuid.UUID(payload["job_id"])
+    logger.info("stage=store_profile status=started cv_id=%s job_id=%s", cv_id, job_id)
+
+    asyncio.run(
+        _update_job(
+            job_id,
+            stage="store_profile",
+            status="running",
+            progress_pct=78,
+            updated_at=datetime.utcnow(),
+        )
+    )
+
+    async def _store() -> None:
+        async with SessionLocal() as db:
+            await db.execute(
+                update(CVProfile)
+                .where(CVProfile.cv_id == cv_id)
+                .values(
+                    raw_text=payload.get("raw_text"),
+                    profile_data=payload.get("profile"),
+                    candidate_name=(payload.get("profile", {}) or {}).get("name"),
+                    email=(payload.get("profile", {}) or {}).get("email"),
+                    phone=(payload.get("profile", {}) or {}).get("phone"),
+                    language=payload.get("language"),
+                    extraction_method=payload.get("extraction_method"),
+                    updated_at=datetime.utcnow(),
+                )
+            )
+            await db.commit()
+
+    asyncio.run(_store())
+
+    asyncio.run(
+        _update_job(
+            job_id,
+            stage="store_profile",
+            status="completed",
+            progress_pct=80,
+            updated_at=datetime.utcnow(),
+        )
+    )
+    return payload
+
+
+@celery_app.task(bind=True, max_retries=3)
 def index_in_search(self, payload: dict[str, Any]) -> dict[str, Any]:
     cv_id = uuid.UUID(payload["cv_id"])
     job_id = uuid.UUID(payload["job_id"])
@@ -313,13 +363,6 @@ def finalize_status(self, payload: dict[str, Any]) -> dict[str, Any]:
                 update(CVProfile)
                 .where(CVProfile.cv_id == cv_id)
                 .values(
-                    raw_text=payload.get("raw_text"),
-                    profile_data=payload.get("profile"),
-                    candidate_name=(payload.get("profile", {}) or {}).get("name"),
-                    email=(payload.get("profile", {}) or {}).get("email"),
-                    phone=(payload.get("profile", {}) or {}).get("phone"),
-                    language=payload.get("language"),
-                    extraction_method=payload.get("extraction_method"),
                     search_doc_external_id=str(payload.get("file_hash") or payload.get("cv_id")),
                     status="ready",
                     updated_at=datetime.utcnow(),
@@ -329,6 +372,7 @@ def finalize_status(self, payload: dict[str, Any]) -> dict[str, Any]:
                 update(CVProcessingJob)
                 .where(CVProcessingJob.job_id == job_id)
                 .values(
+                    stage="finalize",
                     status="completed",
                     progress_pct=100,
                     completed_at=datetime.utcnow(),

@@ -11,9 +11,9 @@ def make_celery() -> Celery:
     app.conf.broker_url = settings.celery_broker_url
     app.conf.result_backend = settings.redis_url
     app.conf.task_default_queue = "default"
-    # Route heavy OCR to a dedicated worker in production, e.g.:
-    # app.conf.task_routes = {"app.tasks.ingestion.ocr_if_needed": {"queue": "ocr"}}
-    app.conf.task_routes = {}
+    app.conf.task_routes = {
+        "app.tasks.ingestion.ocr_if_needed": {"queue": "ocr"},
+    }
     app.autodiscover_tasks(["app.tasks"])
     return app
 
