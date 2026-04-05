@@ -56,13 +56,13 @@ See `schemas/openapi_cv_layer.yaml` for the complete OpenAPI spec.
 
 | Method | Endpoint | Description | Async |
 |--------|----------|-------------|-------|
-| POST | /api/v1/cv/upload | Upload CV file, triggers pipeline | Yes - returns job_id |
-| GET | /api/v1/cv/{cv_id} | Get structured candidate profile | No |
-| GET | /api/v1/cv/{cv_id}/status | Check processing status | No |
-| DELETE | /api/v1/cv/{cv_id} | Remove CV and search index | No |
-| POST | /api/v1/cv/search | Search CVs with filters/facets | No |
-| POST | /api/v1/cv/rank | Rank candidates against JD | Yes for large sets |
-| POST | /api/v1/cv/score-answers | Score test answers vs references | No |
+| POST | /api/v1/candidates/upload | Upload CV file, triggers pipeline | Yes - returns job_id |
+| GET | /api/v1/candidates/{cv_id} | Get structured candidate profile | No |
+| GET | /api/v1/candidates/{cv_id}/status | Check processing status | No |
+| DELETE | /api/v1/candidates/{cv_id} | Remove CV and search index | No |
+| POST | /api/v1/candidates/search | Search CVs with filters/facets | No |
+| POST | /api/v1/candidates/rank | Rank candidates against JD | Yes for large sets |
+| POST | /api/v1/candidates/score-answers | Score test answers vs references | No |
 | POST | /api/v1/collections | Create CV collection | No |
 | GET | /api/v1/collections | List CV collections | No |
 

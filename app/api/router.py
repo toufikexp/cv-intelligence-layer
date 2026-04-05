@@ -10,7 +10,7 @@ from app.api.scoring import router as scoring_router
 
 api_router = APIRouter()
 api_router.include_router(health_router, tags=["Health"])
-api_router.include_router(cv_router, prefix="/api/v1", tags=["CV Management"])
+api_router.include_router(cv_router, prefix="/api/v1", tags=["Candidates"])
 api_router.include_router(collections_router, prefix="/api/v1", tags=["Collections"])
 api_router.include_router(ranking_router, prefix="/api/v1", tags=["Ranking"])
 api_router.include_router(scoring_router, prefix="/api/v1", tags=["Answer Scoring"])

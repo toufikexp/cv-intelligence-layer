@@ -28,7 +28,7 @@ raise HTTPException(status_code=400, detail={"detail": "msg", "code": "INVALID_F
 
 ## Example handler pattern
 ```python
-@router.post("/cv/upload", status_code=202)
+@router.post("/candidates/upload", status_code=202)
 async def upload_cv(
     file: UploadFile,
     collection_id: UUID,

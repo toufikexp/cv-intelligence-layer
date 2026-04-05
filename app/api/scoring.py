@@ -11,7 +11,7 @@ from app.services.search_client import get_search_client
 router = APIRouter()
 
 
-@router.post("/cv/score-answers", response_model=AnswerScoringResponse)
+@router.post("/candidates/score-answers", response_model=AnswerScoringResponse)
 async def score_answers(
     req: AnswerScoringRequest,
     _: str = Depends(get_api_key),
