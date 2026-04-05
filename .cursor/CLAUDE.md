@@ -13,8 +13,8 @@ Hiring Platform → CV Intelligence Layer (this) → Semantic Search API (existi
 - Python 3.11+, FastAPI, uvicorn
 - PostgreSQL 16 (JSONB profiles), SQLAlchemy 2.0 async + asyncpg
 - Celery + Redis (async pipeline)
-- PyMuPDF, python-docx, Surya OCR, EasyOCR
-- Anthropic Claude API (Sonnet) for extraction/ranking/scoring
+- PyMuPDF, python-docx, EasyOCR (fra+eng)
+- Google Gemini API (default) or OpenAI-compatible local LLM for extraction/ranking/scoring
 - Docker + Docker Compose
 
 ## Key commands
@@ -32,7 +32,7 @@ pytest tests/test_document_processor.py -v
 # Celery worker
 celery -A app.tasks.celery_app worker --loglevel=info
 
-# GPU OCR worker
+# OCR worker (dedicated queue)
 celery -A app.tasks.celery_app worker --loglevel=info -Q ocr
 
 # DB migration
@@ -57,6 +57,7 @@ ruff check app/ tests/
 5. **Pydantic v2 validates all external input AND all LLM output**
 6. **Every DB change requires an Alembic migration**
 7. **The Hiring Platform never calls Semantic Search directly** — CV layer proxies everything
+8. **Service-level exceptions inherit from `app.exceptions.CVLayerError`**
 
 ## Code style
 
@@ -73,34 +74,62 @@ ruff check app/ tests/
 app/
   main.py              # FastAPI app factory
   config.py            # pydantic-settings, env-based
+  exceptions.py        # CVLayerError base + subclasses
   api/                 # Thin route handlers → delegate to services
-    cv.py, ranking.py, scoring.py, collections.py
+    router.py          # Router registration
+    cv.py, ranking.py, scoring.py, collections.py, health.py
+    auth.py            # Bearer token validation
   models/
-    database.py        # SQLAlchemy models
+    database.py        # SQLAlchemy engine, session, ORM models (Base, CVProfile, etc.)
     schemas.py         # Pydantic request/response schemas
   services/
     document_processor.py   # PDF/DOCX text extraction
-    ocr_service.py          # Surya + EasyOCR pipeline
-    entity_extractor.py     # Regex + LLM extraction
-    indexing_bridge.py      # CandidateProfile → Search API
+    ocr_service.py          # EasyOCR pipeline (fra+eng)
+    entity_extractor.py     # Regex + LLM extraction + phone normalization
+    indexing_bridge.py      # CandidateProfile → Search API document
     ranking_engine.py       # Semantic recall + LLM ranking
     answer_scorer.py        # Similarity + LLM grading
     search_client.py        # HTTP client for Semantic Search API
-    llm_client.py           # Anthropic API wrapper
+    llm_client.py           # Gemini / OpenAI-compatible wrapper
+    cv_service.py           # CV CRUD operations
+    cv_search.py            # CV search via Semantic Search
+    prompt_loader.py        # Prompt template loading
   tasks/
-    celery_app.py           # Celery config
-    ingestion.py            # Pipeline task chain
+    celery_app.py           # Celery config (OCR routed to 'ocr' queue)
+    ingestion.py            # 8-stage pipeline task chain
   utils/
-    language_detect.py, text_cleaning.py, file_validation.py
+    language_detect.py, text_cleaning.py, file_validation.py, logging.py
+tests/
+  conftest.py               # Shared fixtures and factories
+  test_health.py, test_entity_extractor.py, test_document_processor.py,
+  test_ranking_engine.py, test_answer_scorer.py, test_cv_service.py,
+  test_search_client.py, test_indexing_bridge.py, test_cv_search_service.py
 ```
+
+## API endpoints
+
+All endpoints use prefix `/api/v1/candidates/` (except collections and health):
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | /api/v1/candidates/upload | Upload CV, triggers async pipeline |
+| GET | /api/v1/candidates/{cv_id} | Get structured candidate profile |
+| GET | /api/v1/candidates/{cv_id}/status | Check processing status |
+| DELETE | /api/v1/candidates/{cv_id} | Remove CV and search index |
+| POST | /api/v1/candidates/search | Search CVs with filters/facets |
+| POST | /api/v1/candidates/rank | Rank candidates against JD |
+| POST | /api/v1/candidates/score-answers | Score test answers |
+| POST | /api/v1/collections | Create collection |
+| GET | /api/v1/collections | List collections |
+| GET | /health | Liveness probe |
+| GET | /ready | Readiness probe |
 
 ## Key references (read on demand, don't memorize)
 
-- Full spec: `@SPEC.md`
-- LLM prompts: `@prompts/cv_entity_extraction.md`, `@prompts/cv_ranking.md`, `@prompts/answer_scoring.md`
-- Data model: `@schemas/candidate_profile.json`
-- API contract: `@schemas/openapi_cv_layer.yaml`
-- Architecture doc: `@docs/solution_architecture.md`
+- Full spec: `SPEC.md`
+- LLM prompts: `prompts/cv_entity_extraction.md`, `prompts/cv_ranking.md`, `prompts/answer_scoring.md`
+- Data model: `schemas/candidate_profile.json`
+- API contract: `schemas/openapi_cv_layer.yaml`
 
 ## Bilingual (FR/EN)
 
@@ -111,4 +140,4 @@ app/
 
 ## Environment variables
 
-See `.env.example` for the full list. Key ones: `DATABASE_URL`, `REDIS_URL`, `SEARCH_API_BASE_URL`, `SEARCH_API_KEY`, `ANTHROPIC_API_KEY`.
+See `.env.example` for the full list. Key ones: `DATABASE_URL`, `REDIS_URL`, `SEARCH_API_BASE_URL`, `SEARCH_API_KEY`, `LLM_API_KEY`, `LLM_PROVIDER`, `LLM_MODEL`.

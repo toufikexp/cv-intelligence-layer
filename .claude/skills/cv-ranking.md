@@ -12,7 +12,7 @@ Two-phase ranking:
 - This is FAST (< 500ms) — always do this first
 
 ### Phase 2: LLM Evaluation
-- For each candidate from Phase 1, call Claude Sonnet with `prompts/cv_ranking.md` template
+- For each candidate from Phase 1, call LLM (Gemini default) with `prompts/cv_ranking.md` template
 - Parallelize with `asyncio.Semaphore(RANKING_LLM_CONCURRENCY)` — default 5
 - Each LLM call returns: skills_score, experience_score, education_score, language_score, reasoning
 
@@ -28,8 +28,13 @@ composite = (
 # Defaults: 0.30, 0.25, 0.25, 0.10, 0.10
 ```
 
+- Semantic score serves dual purpose: filtering (top N) AND scoring signal (30% weight)
+- Weights are customizable per request via the `weights` field
 - Cache results in `cv_ranking_results` table to avoid recomputation
 - For > 30 candidates: make it async (return job_id)
+
+### API Endpoint
+- `POST /api/v1/candidates/rank`
 
 ## Answer Scorer
 
@@ -47,3 +52,6 @@ else:
 - Candidate answer is the search query → score is the similarity
 - LLM grading uses `prompts/answer_scoring.md` template
 - Aggregate: `total_score = sum(points_awarded) / sum(max_points) * 100`
+
+### API Endpoint
+- `POST /api/v1/candidates/score-answers`
