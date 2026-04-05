@@ -20,8 +20,8 @@ security:
   - bearerAuth: []
 
 tags:
-  - name: CV Management
-    description: Upload, retrieve, and manage CV documents
+  - name: Candidates
+    description: Upload, retrieve, and manage candidate resumes
   - name: Search
     description: Search and filter indexed CVs
   - name: Ranking
@@ -34,10 +34,10 @@ tags:
     description: Health and readiness checks
 
 paths:
-  # ── CV Management ──────────────────────────────────────────────
-  /api/v1/cv/upload:
+  # ── Candidates ─────────────────────────────────────────────────
+  /api/v1/candidates/upload:
     post:
-      tags: [CV Management]
+      tags: [Candidates]
       summary: Upload CV
       description: |
         Upload a CV file (PDF or DOCX) for processing. Returns immediately
@@ -91,9 +91,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/CVDuplicateResponse'
 
-  /api/v1/cv/{cv_id}:
+  /api/v1/candidates/{cv_id}:
     get:
-      tags: [CV Management]
+      tags: [Candidates]
       summary: Get CV profile
       description: Retrieve the structured candidate profile for a processed CV.
       operationId: get_cv
@@ -111,7 +111,7 @@ paths:
           description: CV not found
 
     delete:
-      tags: [CV Management]
+      tags: [Candidates]
       summary: Delete CV
       description: Remove CV profile and its search index entry.
       operationId: delete_cv
@@ -124,9 +124,9 @@ paths:
         "404":
           description: CV not found
 
-  /api/v1/cv/{cv_id}/status:
+  /api/v1/candidates/{cv_id}/status:
     get:
-      tags: [CV Management]
+      tags: [Candidates]
       summary: Get CV processing status
       description: Check the current processing status of a CV upload.
       operationId: get_cv_status
@@ -144,7 +144,7 @@ paths:
           description: CV not found
 
   # ── Search ─────────────────────────────────────────────────────
-  /api/v1/cv/search:
+  /api/v1/candidates/search:
     post:
       tags: [Search]
       summary: Search CVs
@@ -169,7 +169,7 @@ paths:
                 $ref: '#/components/schemas/CVSearchResponse'
 
   # ── Ranking ────────────────────────────────────────────────────
-  /api/v1/cv/rank:
+  /api/v1/candidates/rank:
     post:
       tags: [Ranking]
       summary: Rank candidates against job description
@@ -201,7 +201,7 @@ paths:
                 $ref: '#/components/schemas/AsyncJobResponse'
 
   # ── Answer Scoring ─────────────────────────────────────────────
-  /api/v1/cv/score-answers:
+  /api/v1/candidates/score-answers:
     post:
       tags: [Answer Scoring]
       summary: Score candidate answers

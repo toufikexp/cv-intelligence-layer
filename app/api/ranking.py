@@ -13,7 +13,7 @@ from app.services.search_client import get_search_client
 router = APIRouter()
 
 
-@router.post("/cv/rank", response_model=RankingResponse)
+@router.post("/candidates/rank", response_model=RankingResponse)
 async def rank_candidates(
     req: RankingRequest,
     _: str = Depends(get_api_key),

@@ -49,7 +49,7 @@ def _stage_to_cv_status(stage: str | None) -> CVStatusEnum:
     return m.get(stage or "", "pending")
 
 
-@router.post("/cv/upload", status_code=202, response_model=CVUploadResponse)
+@router.post("/candidates/upload", status_code=202, response_model=CVUploadResponse)
 async def upload_cv(
     file: UploadFile = File(...),
     collection_id: uuid.UUID = Form(...),
@@ -77,7 +77,7 @@ async def upload_cv(
     return CVUploadResponse(cv_id=cv.cv_id, job_id=job.job_id, status="pending", file_hash=file_hash)
 
 
-@router.get("/cv/{cv_id}", response_model=CVProfileResponse)
+@router.get("/candidates/{cv_id}", response_model=CVProfileResponse)
 async def get_cv(
     cv_id: uuid.UUID,
     _: str = Depends(get_api_key),
@@ -101,7 +101,7 @@ async def get_cv(
     )
 
 
-@router.get("/cv/{cv_id}/status", response_model=CVStatusResponse)
+@router.get("/candidates/{cv_id}/status", response_model=CVStatusResponse)
 async def get_cv_status(
     cv_id: uuid.UUID,
     _: str = Depends(get_api_key),
@@ -131,7 +131,7 @@ async def get_cv_status(
     )
 
 
-@router.delete("/cv/{cv_id}", status_code=204)
+@router.delete("/candidates/{cv_id}", status_code=204)
 async def delete_cv(
     cv_id: uuid.UUID,
     _: str = Depends(get_api_key),
@@ -152,7 +152,7 @@ async def delete_cv(
     return None
 
 
-@router.post("/cv/search", response_model=CVSearchResponse)
+@router.post("/candidates/search", response_model=CVSearchResponse)
 async def search_cvs(
     req: CVSearchRequest,
     _: str = Depends(get_api_key),
