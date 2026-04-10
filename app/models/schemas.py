@@ -12,7 +12,10 @@ class ErrorResponse(BaseModel):
     code: str
 
 
-CVStatusEnum = Literal["pending", "extracting", "ocr_processing", "entity_extraction", "indexing", "ready", "failed"]
+CVStatusEnum = Literal[
+    "pending", "extracting", "ocr_processing", "entity_extraction",
+    "indexing", "ready", "failed", "index_failed",
+]
 
 
 class ExperienceEntry(BaseModel):
@@ -73,7 +76,7 @@ class CVProfileResponse(BaseModel):
     cv_id: uuid.UUID
     external_id: str | None = None
     collection_id: uuid.UUID
-    status: Literal["pending", "extracting", "indexing", "ready", "failed"]
+    status: Literal["pending", "extracting", "indexing", "ready", "failed", "index_failed"]
     language: str | None = None
     extraction_method: str | None = None
     profile: CandidateProfile | None = None
@@ -238,4 +241,42 @@ class CollectionCreateResponse(BaseModel):
 class CollectionListResponse(BaseModel):
     collections: list[CollectionCreateResponse]
     total: int | None = None
+
+
+# ---------------------------------------------------------------------------
+# Webhook schemas
+# ---------------------------------------------------------------------------
+
+IngestionDocStatus = Literal["indexed", "failed"]
+IngestionJobStatus = Literal["completed", "completed_with_errors"]
+
+
+class IngestedDocumentResult(BaseModel):
+    external_id: str
+    status: IngestionDocStatus
+    error: str | None = None
+
+
+class IngestionWebhookPayload(BaseModel):
+    """Incoming webhook from Semantic Search after document ingest completes."""
+
+    event: str
+    job_id: uuid.UUID
+    collection_id: uuid.UUID
+    status: IngestionJobStatus
+    total_docs: int
+    processed_docs: int
+    failed_docs: int
+    documents: list[IngestedDocumentResult]
+    completed_at: datetime
+
+
+class HPCallbackPayload(BaseModel):
+    """Outgoing webhook to Hiring Platform when CV processing finishes."""
+
+    external_id: str | None = None
+    file_hash: str | None = None
+    status: Literal["ready", "index_failed"]
+    error: str | None = None
+    completed_at: datetime
 

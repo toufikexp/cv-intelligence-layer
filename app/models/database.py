@@ -39,8 +39,10 @@ class CVProfile(Base):
     extraction_method: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     search_doc_external_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    search_ingest_job_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     file_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", index=True)
+    callback_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

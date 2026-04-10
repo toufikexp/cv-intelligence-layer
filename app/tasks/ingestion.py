@@ -51,6 +51,11 @@ def start_cv_ingestion(
     file_path: str,
     mime: str,
 ) -> None:
+    """Pipeline: extract → store → submit to search.
+
+    Finalization happens later when the Semantic Search ingestion webhook
+    arrives at ``POST /api/webhooks/ingestion``.
+    """
     chain(
         validate_file.s(str(cv_id), str(job_id), str(collection_id), file_hash, file_path, mime),
         extract_text.s(),
@@ -58,8 +63,7 @@ def start_cv_ingestion(
         detect_lang.s(),
         extract_entities.s(),
         store_profile.s(),
-        index_in_search.s(),
-        finalize_status.s(),
+        submit_to_search.s(),
     ).apply_async()
 
 
@@ -294,10 +298,17 @@ def store_profile(self, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @celery_app.task(bind=True, max_retries=3)
-def index_in_search(self, payload: dict[str, Any]) -> dict[str, Any]:
+def submit_to_search(self, payload: dict[str, Any]) -> dict[str, Any]:
+    """Submit document to Semantic Search for async indexing.
+
+    Saves the ``search_ingest_job_id`` returned by Semantic Search so the
+    ingestion webhook handler can correlate results back to this CV.
+    The pipeline chain ends here — finalization happens when the webhook
+    arrives at ``POST /api/webhooks/ingestion``.
+    """
     cv_id = uuid.UUID(payload["cv_id"])
     job_id = uuid.UUID(payload["job_id"])
-    logger.info("stage=indexing status=started cv_id=%s job_id=%s", cv_id, job_id)
+    logger.info("stage=submit_to_search status=started cv_id=%s job_id=%s", cv_id, job_id)
 
     asyncio.run(
         _update_cv(cv_id, status="indexing", updated_at=datetime.utcnow())
@@ -307,7 +318,7 @@ def index_in_search(self, payload: dict[str, Any]) -> dict[str, Any]:
             job_id,
             stage="indexing",
             status="running",
-            progress_pct=80,
+            progress_pct=85,
             updated_at=datetime.utcnow(),
         )
     )
@@ -335,51 +346,66 @@ def index_in_search(self, payload: dict[str, Any]) -> dict[str, Any]:
                 upsert=True,
             )
         )
-        payload["search_result"] = result
     finally:
         asyncio.run(client.aclose())
+
+    # Store the Semantic Search ingest job_id for webhook correlation
+    ingest_job_id = result.get("job_id")
+    asyncio.run(
+        _update_cv(
+            cv_id,
+            search_doc_external_id=doc.external_id,
+            search_ingest_job_id=str(ingest_job_id) if ingest_job_id else None,
+            updated_at=datetime.utcnow(),
+        )
+    )
 
     asyncio.run(
         _update_job(
             job_id,
             stage="indexing",
-            status="completed",
+            status="submitted",
             progress_pct=90,
             updated_at=datetime.utcnow(),
         )
     )
+    logger.info(
+        "stage=submit_to_search status=submitted cv_id=%s ingest_job_id=%s",
+        cv_id,
+        ingest_job_id,
+    )
     return payload
 
 
-@celery_app.task(bind=True, max_retries=3)
-def finalize_status(self, payload: dict[str, Any]) -> dict[str, Any]:
-    cv_id = uuid.UUID(payload["cv_id"])
-    job_id = uuid.UUID(payload["job_id"])
-    logger.info("stage=finalize status=started cv_id=%s job_id=%s", cv_id, job_id)
+@celery_app.task(bind=True, max_retries=5)
+def notify_hiring_platform(self, callback_url: str, payload_json: str) -> None:
+    """Fire a callback to the Hiring Platform. Retries with exponential backoff."""
+    import httpx
 
-    async def _final() -> None:
-        async with SessionLocal() as db:
-            await db.execute(
-                update(CVProfile)
-                .where(CVProfile.cv_id == cv_id)
-                .values(
-                    search_doc_external_id=str(payload.get("file_hash") or payload.get("cv_id")),
-                    status="ready",
-                    updated_at=datetime.utcnow(),
-                )
-            )
-            await db.execute(
-                update(CVProcessingJob)
-                .where(CVProcessingJob.job_id == job_id)
-                .values(
-                    stage="finalize",
-                    status="completed",
-                    progress_pct=100,
-                    completed_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow(),
-                )
-            )
-            await db.commit()
+    from app.config import get_settings
+    from app.utils.webhook_signing import sign_payload
 
-    asyncio.run(_final())
-    return payload
+    settings = get_settings()
+    payload_bytes = payload_json.encode()
+    signature = sign_payload(payload_bytes, settings.hp_webhook_secret)
+
+    try:
+        resp = httpx.post(
+            callback_url,
+            content=payload_bytes,
+            headers={
+                "Content-Type": "application/json",
+                "X-Webhook-Signature": signature,
+            },
+            timeout=settings.webhook_timeout_seconds,
+        )
+        resp.raise_for_status()
+        logger.info("hp_callback status=delivered url=%s", callback_url)
+    except httpx.HTTPError as exc:
+        logger.warning(
+            "hp_callback status=failed url=%s attempt=%d error=%s",
+            callback_url,
+            self.request.retries + 1,
+            str(exc),
+        )
+        raise self.retry(exc=exc, countdown=2 ** (self.request.retries + 1))

@@ -14,8 +14,8 @@ The CV processing pipeline is fully asynchronous via Celery task chain. Each sta
 | 4 | Language Detection | fasttext lid.176.bin on extracted text | Language code (fr/en/mixed) | Default to 'mixed' |
 | 5 | Entity Extraction | Regex pass (email, phone, URLs) + LLM structured extraction + phone normalization | CandidateProfile JSON | Retry LLM 2x, then store partial |
 | 6 | Profile Storage | Upsert CandidateProfile into PostgreSQL | cv_id | DB retry 3x |
-| 7 | Search Indexing | Build search document, POST to Semantic Search /documents with upsert:true | search_doc_external_id | Queue for retry |
-| 8 | Status Update | Set status=ready, fire webhook if configured | Final status | Log and alert |
+| 7 | Search Indexing | Build search document, POST to Semantic Search /documents (async ingest). Save `search_ingest_job_id` for webhook correlation. Pipeline chain ends here. | search_doc_external_id + ingest job_id | Queue for retry |
+| 8 | Webhook Finalize | Semantic Search fires `POST /api/webhooks/ingestion` when indexing completes. CV Layer verifies HMAC, updates status to `ready` or `index_failed`, then fires callback to Hiring Platform if `callback_url` was provided. | Final status | Idempotent; ignored for already-finalized CVs |
 
 ### OCR detection logic
 
@@ -56,6 +56,37 @@ Metadata mapping for faceted search:
 }
 ```
 
+### Webhook flow (async ingestion + callbacks)
+
+The pipeline uses a dual-webhook pattern for async coordination:
+
+```
+Hiring Platform              CV Layer                        Semantic Search
+     │── POST /upload ─────────▶│                                  │
+     │◀── 202 {cv_id, job_id}  │                                  │
+     │                          │ stages 1-6: extract → store      │
+     │                          │ stage 7: submit_to_search ──────▶│
+     │                          │◀── 202 {ingest_job_id}          │
+     │                          │                                  │── indexing...
+     │                          │◀── POST /api/webhooks/ingestion │
+     │                          │── 200 {received: true} ─────────▶│
+     │◀── POST callback_url ───│                                  │
+```
+
+**Incoming webhook** (Semantic Search → CV Layer):
+- Endpoint: `POST /api/webhooks/ingestion`
+- HMAC-SHA256 signature in `X-Webhook-Signature` header (secret: `SEARCH_WEBHOOK_SECRET`)
+- Payload: `{event, job_id, collection_id, status, total_docs, processed_docs, failed_docs, documents[], completed_at}`
+- `status`: `"completed"` or `"completed_with_errors"`
+- Correlation: CV Layer looks up `search_ingest_job_id` in `cv_profiles` to find the CV
+
+**Outgoing callback** (CV Layer → Hiring Platform):
+- Fires to `callback_url` provided during upload (if set)
+- HMAC-SHA256 signature in `X-Webhook-Signature` header (secret: `HP_WEBHOOK_SECRET`)
+- Payload: `{external_id, file_hash, status, error, completed_at}`
+- `status`: `"ready"` or `"index_failed"`
+- Retries: 5 attempts with exponential backoff via Celery task
+
 ## 2. API Contract
 
 See `schemas/openapi_cv_layer.yaml` for the complete OpenAPI spec.
@@ -73,6 +104,7 @@ See `schemas/openapi_cv_layer.yaml` for the complete OpenAPI spec.
 | POST | /api/v1/candidates/score-answers | Score test answers vs references | No |
 | POST | /api/v1/collections | Create CV collection | No |
 | GET | /api/v1/collections | List CV collections | No |
+| POST | /api/webhooks/ingestion | Receive Semantic Search ingest webhook | Webhook receiver |
 
 ### Authentication
 
@@ -95,8 +127,10 @@ Same pattern as Semantic Search API: `Authorization: Bearer <api_key>` header.
 | language | VARCHAR(5) | Yes | fr, en, mixed |
 | extraction_method | VARCHAR(20) | No | text_extraction, ocr_easyocr |
 | search_doc_external_id | VARCHAR(255) | Yes | Reference to search platform doc |
+| search_ingest_job_id | VARCHAR(64) | Yes | Semantic Search ingest job_id for webhook correlation |
 | file_hash | VARCHAR(64) | Yes (unique/collection) | SHA-256 for dedup |
-| status | VARCHAR(20) | Yes | pending/extracting/indexing/ready/failed |
+| status | VARCHAR(20) | Yes | pending/extracting/indexing/ready/failed/index_failed |
+| callback_url | VARCHAR(2048) | No | Hiring Platform webhook URL for completion notification |
 | created_at | TIMESTAMPTZ | Yes | Upload timestamp |
 | updated_at | TIMESTAMPTZ | No | Last modification |
 

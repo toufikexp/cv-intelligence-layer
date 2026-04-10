@@ -17,6 +17,7 @@ class CVService:
         collection_id: uuid.UUID,
         external_id: str | None,
         file_hash: str,
+        callback_url: str | None = None,
     ) -> tuple[CVProfile, CVProcessingJob]:
         existing = await db.execute(
             select(CVProfile).where(CVProfile.collection_id == collection_id, CVProfile.file_hash == file_hash)
@@ -33,6 +34,7 @@ class CVService:
             external_id=external_id,
             collection_id=collection_id,
             file_hash=file_hash,
+            callback_url=callback_url,
             status="pending",
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),

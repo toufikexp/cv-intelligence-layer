@@ -25,14 +25,14 @@ from app.utils.file_validation import validate_and_persist_upload
 
 router = APIRouter()
 
-ProfileStatus = Literal["pending", "extracting", "indexing", "ready", "failed"]
+ProfileStatus = Literal["pending", "extracting", "indexing", "ready", "failed", "index_failed"]
 
 
 def _narrow_profile_status(status: str) -> ProfileStatus:
     """Map internal pipeline statuses to OpenAPI CVProfileResponse status enum."""
     if status in ("ocr_processing", "entity_extraction"):
         return "extracting"
-    if status in ("pending", "extracting", "indexing", "ready", "failed"):
+    if status in ("pending", "extracting", "indexing", "ready", "failed", "index_failed"):
         return status  # type: ignore[return-value]
     return "extracting"
 
@@ -62,7 +62,11 @@ async def upload_cv(
     path, file_hash = await validate_and_persist_upload(file)
 
     cv, job = await cv_service.create_pending_cv(
-        db=db, collection_id=collection_id, external_id=external_id, file_hash=file_hash
+        db=db,
+        collection_id=collection_id,
+        external_id=external_id,
+        file_hash=file_hash,
+        callback_url=callback_url,
     )
 
     start_cv_ingestion(
@@ -73,7 +77,6 @@ async def upload_cv(
         file_path=str(path),
         mime=file.content_type or "",
     )
-    _ = callback_url
     return CVUploadResponse(cv_id=cv.cv_id, job_id=job.job_id, status="pending", file_hash=file_hash)
 
 
@@ -113,8 +116,8 @@ async def get_cv_status(
 
     if cv.status == "ready":
         api_status: CVStatusEnum = "ready"
-    elif cv.status == "failed":
-        api_status = "failed"
+    elif cv.status in ("failed", "index_failed"):
+        api_status = cv.status  # type: ignore[assignment]
     elif job and job.status != "completed":
         api_status = _stage_to_cv_status(job.stage)
     else:

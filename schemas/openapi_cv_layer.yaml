@@ -297,6 +297,43 @@ paths:
         "503":
           description: One or more dependencies unavailable
 
+  # ── Webhooks ──────────────────────────────────────────────────
+  /api/webhooks/ingestion:
+    post:
+      tags: [Webhooks]
+      summary: Receive ingestion completion webhook from Semantic Search
+      description: >
+        Called by Semantic Search when document indexing completes.
+        Verifies HMAC-SHA256 signature, correlates by ingest job_id,
+        updates CV status, and fires callback to Hiring Platform.
+      operationId: ingestion_webhook
+      security: []
+      parameters:
+        - name: X-Webhook-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+          description: "HMAC-SHA256 signature: sha256={hex}"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngestionWebhookPayload'
+      responses:
+        "200":
+          description: Webhook received and processed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received:
+                    type: boolean
+        "401":
+          description: Invalid webhook signature
+
 components:
   securitySchemes:
     bearerAuth:
@@ -830,3 +867,62 @@ components:
           type: string
         code:
           type: string
+
+    # ── Webhook Schemas ─────────────────────────────────────────
+    IngestedDocumentResult:
+      type: object
+      required: [external_id, status]
+      properties:
+        external_id:
+          type: string
+        status:
+          type: string
+          enum: [indexed, failed]
+        error:
+          type: string
+
+    IngestionWebhookPayload:
+      type: object
+      required: [event, job_id, collection_id, status, total_docs, processed_docs, failed_docs, documents, completed_at]
+      properties:
+        event:
+          type: string
+        job_id:
+          type: string
+          format: uuid
+        collection_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [completed, completed_with_errors]
+        total_docs:
+          type: integer
+        processed_docs:
+          type: integer
+        failed_docs:
+          type: integer
+        documents:
+          type: array
+          items:
+            $ref: '#/components/schemas/IngestedDocumentResult'
+        completed_at:
+          type: string
+          format: date-time
+
+    HPCallbackPayload:
+      type: object
+      description: Outgoing webhook payload sent to Hiring Platform callback_url
+      properties:
+        external_id:
+          type: string
+        file_hash:
+          type: string
+        status:
+          type: string
+          enum: [ready, index_failed]
+        error:
+          type: string
+        completed_at:
+          type: string
+          format: date-time

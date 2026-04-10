@@ -43,3 +43,10 @@ class PipelineError(CVLayerError):
 
     def __init__(self, message: str) -> None:
         super().__init__(message, code="PIPELINE_ERROR")
+
+
+class WebhookError(CVLayerError):
+    """Raised when a webhook delivery or verification fails."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, code="WEBHOOK_ERROR")

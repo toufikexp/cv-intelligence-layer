@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     ranking_default_recall_size: int = Field(default=30, alias="RANKING_DEFAULT_RECALL_SIZE")
     ranking_llm_concurrency: int = Field(default=5, alias="RANKING_LLM_CONCURRENCY")
 
+    search_webhook_secret: str = Field(default="", alias="SEARCH_WEBHOOK_SECRET")
+    hp_webhook_secret: str = Field(default="", alias="HP_WEBHOOK_SECRET")
+    webhook_timeout_seconds: int = Field(default=10, alias="WEBHOOK_TIMEOUT_SECONDS")
+
 
 _settings: Settings | None = None
 
