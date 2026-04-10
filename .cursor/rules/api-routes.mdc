@@ -26,6 +26,12 @@ raise HTTPException(status_code=400, detail={"detail": "msg", "code": "INVALID_F
 - Define all request/response models in `app/models/schemas.py`
 - Reference `schemas/openapi_cv_layer.yaml` for the full contract
 
+## Webhook endpoints
+- `POST /api/webhooks/ingestion` — receives Semantic Search ingest callbacks
+- No Bearer auth — uses `X-Webhook-Signature` HMAC-SHA256 verification instead
+- Reads raw body first for signature check, then parses as Pydantic model
+- Delegates to `IngestionWebhookService` — route handler stays thin
+
 ## Example handler pattern
 ```python
 @router.post("/candidates/upload", status_code=202)

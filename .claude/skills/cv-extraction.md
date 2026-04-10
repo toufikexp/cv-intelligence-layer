@@ -51,3 +51,13 @@ Service-level exceptions inherit from `app.exceptions.CVLayerError`:
 - `EntityExtractionError` — extraction failures
 - `LLMClientError` — LLM API failures
 - `PipelineError` — pipeline stage failures
+- `WebhookError` — webhook delivery or verification failures
+
+## Pipeline flow (async webhook-based)
+
+The Celery pipeline chain ends at `submit_to_search` (stage 7). Document ingest is
+async — Semantic Search returns `{job_id, status: "processing"}`. CV Layer saves the
+`search_ingest_job_id` and waits for the ingestion webhook. When Semantic Search fires
+`POST /api/webhooks/ingestion`, the `IngestionWebhookService` updates the CV to
+`ready` or `index_failed` and fires a callback to the Hiring Platform if `callback_url`
+was provided at upload time.

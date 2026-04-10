@@ -14,8 +14,8 @@ The CV processing pipeline is fully asynchronous via Celery task chain. Each sta
 | 4 | Language Detection | fasttext lid.176.bin on extracted text | Language code (fr/en/mixed) | Default to 'mixed' |
 | 5 | Entity Extraction | Regex pass (email, phone, URLs) + LLM structured extraction + phone normalization | CandidateProfile JSON | Retry LLM 2x, then store partial |
 | 6 | Profile Storage | Upsert CandidateProfile into PostgreSQL | cv_id | DB retry 3x |
-| 7 | Search Indexing | Build search document, POST to Semantic Search /documents with upsert:true | search_doc_external_id | Queue for retry |
-| 8 | Status Update | Set status=ready, fire webhook if configured | Final status | Log and alert |
+| 7 | Search Indexing | Build search document, POST to Semantic Search /documents (async ingest). Save `search_ingest_job_id` for webhook correlation. Pipeline chain ends here. | search_doc_external_id + ingest job_id | Queue for retry |
+| 8 | Webhook Finalize | Semantic Search fires `POST /api/webhooks/ingestion` when indexing completes. CV Layer verifies HMAC, updates status to `ready` or `index_failed`, then fires callback to Hiring Platform if `callback_url` was provided. | Final status | Idempotent; ignored for already-finalized CVs |
 
 ### OCR detection logic
 

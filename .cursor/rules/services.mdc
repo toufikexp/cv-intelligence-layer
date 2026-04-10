@@ -41,3 +41,11 @@ alwaysApply: false
 ## answer_scorer.py
 - Hybrid: embedding score ≥ 0.7 → accept; 0.3-0.7 → LLM; < 0.3 → flag
 - Reference: `prompts/answer_scoring.md`
+
+## ingestion_webhook_service.py
+- Handles incoming webhooks from Semantic Search after document ingest completes
+- Correlates by `search_ingest_job_id` in `cv_profiles` table to find the CV
+- Idempotent: skips already-finalized CVs (`ready` / `index_failed`)
+- Updates CV status and processing job record
+- Fires callback to Hiring Platform via `notify_hiring_platform` Celery task if `callback_url` is set
+- Uses `app/utils/webhook_signing.py` for HMAC-SHA256 signature verification

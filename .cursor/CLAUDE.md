@@ -78,6 +78,7 @@ app/
   api/                 # Thin route handlers → delegate to services
     router.py          # Router registration
     cv.py, ranking.py, scoring.py, collections.py, health.py
+    webhooks.py        # Semantic Search ingestion webhook receiver
     auth.py            # Bearer token validation
   models/
     database.py        # SQLAlchemy engine, session, ORM models (Base, CVProfile, etc.)
@@ -94,16 +95,19 @@ app/
     cv_service.py           # CV CRUD operations
     cv_search.py            # CV search via Semantic Search
     prompt_loader.py        # Prompt template loading
+    ingestion_webhook_service.py  # Handles Semantic Search ingestion webhooks
   tasks/
     celery_app.py           # Celery config (OCR routed to 'ocr' queue)
-    ingestion.py            # 8-stage pipeline task chain
+    ingestion.py            # 7-stage pipeline + HP callback task
   utils/
-    language_detect.py, text_cleaning.py, file_validation.py, logging.py
+    language_detect.py, text_cleaning.py, file_validation.py, logging.py,
+    webhook_signing.py      # HMAC-SHA256 signing/verification
 tests/
   conftest.py               # Shared fixtures and factories
   test_health.py, test_entity_extractor.py, test_document_processor.py,
   test_ranking_engine.py, test_answer_scorer.py, test_cv_service.py,
-  test_search_client.py, test_indexing_bridge.py, test_cv_search_service.py
+  test_search_client.py, test_indexing_bridge.py, test_cv_search_service.py,
+  test_webhooks.py          # Webhook handler, signing, HP callback tests
 ```
 
 ## API endpoints
@@ -121,6 +125,7 @@ All endpoints use prefix `/api/v1/candidates/` (except collections and health):
 | POST | /api/v1/candidates/score-answers | Score test answers |
 | POST | /api/v1/collections | Create collection |
 | GET | /api/v1/collections | List collections |
+| POST | /api/webhooks/ingestion | Semantic Search ingestion webhook |
 | GET | /health | Liveness probe |
 | GET | /ready | Readiness probe |
 
@@ -140,4 +145,4 @@ All endpoints use prefix `/api/v1/candidates/` (except collections and health):
 
 ## Environment variables
 
-See `.env.example` for the full list. Key ones: `DATABASE_URL`, `REDIS_URL`, `SEARCH_API_BASE_URL`, `SEARCH_API_KEY`, `LLM_API_KEY`, `LLM_PROVIDER`, `LLM_MODEL`.
+See `.env.example` for the full list. Key ones: `DATABASE_URL`, `REDIS_URL`, `SEARCH_API_BASE_URL`, `SEARCH_API_KEY`, `LLM_API_KEY`, `LLM_PROVIDER`, `LLM_MODEL`, `SEARCH_WEBHOOK_SECRET`, `HP_WEBHOOK_SECRET`.

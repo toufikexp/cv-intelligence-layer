@@ -22,7 +22,7 @@ A Python FastAPI middleware between a Hiring Platform (external team) and the ex
 - Python 3.11+, FastAPI, uvicorn
 - PostgreSQL 16 + JSONB, SQLAlchemy 2.0 async + asyncpg
 - Celery + Redis for async pipeline
-- PyMuPDF, python-docx, Surya OCR, EasyOCR
+- PyMuPDF, python-docx, EasyOCR (fra+eng)
 - Google Gemini API (default) for extraction/ranking/scoring; optional OpenAI-compatible HTTP for local LLM
 
 ## Code style

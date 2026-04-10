@@ -10,8 +10,14 @@ alwaysApply: false
 ## Pipeline architecture
 Tasks are linked via `chain()`:
 ```
-validate_file → extract_text → (ocr_if_needed) → detect_language → extract_entities → store_profile → index_in_search → update_status
+validate_file → extract_text → (ocr_if_needed) → detect_language → extract_entities → store_profile → submit_to_search
 ```
+
+**Async finalization**: The pipeline chain ends at `submit_to_search`. Semantic Search
+document ingest is async (returns `job_id`). When indexing completes, Semantic Search
+fires a webhook to `POST /api/webhooks/ingestion`. The `IngestionWebhookService` then
+updates CV status and fires a callback to the Hiring Platform via the
+`notify_hiring_platform` Celery task (retries with exponential backoff).
 
 ## Idempotency (CRITICAL)
 Every task MUST check current state before acting:

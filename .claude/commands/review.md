@@ -6,8 +6,9 @@ Check for:
 3. **Error handling**: Proper error responses with `{"detail": ..., "code": ...}` format? Celery tasks catch and log before re-raising?
 4. **Idempotency**: Can each Celery task be safely retried?
 5. **Bilingual**: Does the code handle French and English CVs? Language detection before LLM calls?
-6. **Security**: File validation (MIME, size)? No PII in logs? API key auth on all endpoints?
-7. **Tests**: Are external services mocked? Edge cases covered?
+6. **Security**: File validation (MIME, size)? No PII in logs? API key auth on all endpoints? HMAC-SHA256 verification on webhook endpoints?
+7. **Webhooks**: Are webhook handlers idempotent? Is signature verification applied? Are HP callbacks retried on failure?
+8. **Tests**: Are external services mocked? Edge cases covered?
 
 Run the checks:
 ```bash
