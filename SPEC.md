@@ -82,7 +82,7 @@ Hiring Platform              CV Layer                        Semantic Search
 
 **Outgoing callback** (CV Layer → Hiring Platform):
 - Fires to `callback_url` provided during upload (if set)
-- HMAC-SHA256 signature in `X-Webhook-Signature` header (secret: `HP_WEBHOOK_SECRET`)
+- HMAC-SHA256 signature in `X-Webhook-Signature` header (secret: `APP_WEBHOOK_SECRET`)
 - Payload: `{external_id, file_hash, status, error, completed_at}`
 - `status`: `"ready"` or `"index_failed"`
 - Retries: 5 attempts with exponential backoff via Celery task

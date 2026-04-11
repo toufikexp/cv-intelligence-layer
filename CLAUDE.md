@@ -145,4 +145,4 @@ All endpoints use prefix `/api/v1/candidates/` (except collections and health):
 
 ## Environment variables
 
-See `.env.example` for the full list. Key ones: `DATABASE_URL`, `REDIS_URL`, `SEARCH_API_BASE_URL`, `SEARCH_API_KEY`, `LLM_API_KEY`, `LLM_PROVIDER`, `LLM_MODEL`, `SEARCH_WEBHOOK_SECRET`, `HP_WEBHOOK_SECRET`.
+See `.env.example` for the full list. Key ones: `DATABASE_URL`, `REDIS_URL`, `SEARCH_API_BASE_URL`, `SEARCH_API_KEY`, `LLM_API_KEY`, `LLM_PROVIDER`, `LLM_MODEL`, `SEARCH_WEBHOOK_SECRET`, `APP_WEBHOOK_SECRET`.

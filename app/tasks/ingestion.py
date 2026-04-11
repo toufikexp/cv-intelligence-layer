@@ -387,7 +387,7 @@ def notify_hiring_platform(self, callback_url: str, payload_json: str) -> None:
 
     settings = get_settings()
     payload_bytes = payload_json.encode()
-    signature = sign_payload(payload_bytes, settings.hp_webhook_secret)
+    signature = sign_payload(payload_bytes, settings.app_webhook_secret)
 
     try:
         resp = httpx.post(
