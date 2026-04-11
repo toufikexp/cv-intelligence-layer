@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: cv_user
       POSTGRES_PASSWORD: password
     ports:
-      - "5433:5432"
+      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cv_user -d cv_intelligence"]
       interval: 5s
@@ -16,15 +16,23 @@ services:
   cv-redis:
     image: redis:7
     ports:
-      - "6380:6379"
+      - "6379:6379"
 
   cv-api:
     build: .
-    env_file: .env
     environment:
+      APP_ENV: development
+      APP_PORT: 8001
       DATABASE_URL: postgresql+asyncpg://cv_user:password@cv-db:5432/cv_intelligence
       REDIS_URL: redis://cv-redis:6379/0
       CELERY_BROKER_URL: redis://cv-redis:6379/0
+      APP_API_KEY: dev_key_change_me
+      SEARCH_API_BASE_URL: http://semantic-search-api:8000
+      SEARCH_API_KEY: search_api_key
+      # SEARCH_INGEST_API_KEY: sk_ingest_...
+      LLM_PROVIDER: gemini
+      LLM_API_KEY: gemini_key
+      LLM_MODEL: gemini-2.5-flash
       UPLOAD_DIR: /data/uploads
     ports:
       - "8001:8001"
@@ -39,11 +47,17 @@ services:
   cv-worker:
     build: .
     command: celery -A app.tasks.celery_app worker --loglevel=info
-    env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://cv_user:password@cv-db:5432/cv_intelligence
       REDIS_URL: redis://cv-redis:6379/0
       CELERY_BROKER_URL: redis://cv-redis:6379/0
+      APP_API_KEY: dev_key_change_me
+      SEARCH_API_BASE_URL: http://semantic-search-api:8000
+      SEARCH_API_KEY: search_api_key
+      # SEARCH_INGEST_API_KEY: sk_ingest_...
+      LLM_PROVIDER: gemini
+      LLM_API_KEY: gemini_key
+      LLM_MODEL: gemini-2.5-flash
       UPLOAD_DIR: /data/uploads
     volumes:
       - ./data/uploads:/data/uploads
