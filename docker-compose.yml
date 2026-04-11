@@ -28,6 +28,8 @@ services:
       UPLOAD_DIR: /data/uploads
     ports:
       - "8001:8001"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./data/uploads:/data/uploads
     depends_on:
@@ -45,6 +47,8 @@ services:
       REDIS_URL: redis://cv-redis:6379/0
       CELERY_BROKER_URL: redis://cv-redis:6379/0
       UPLOAD_DIR: /data/uploads
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./data/uploads:/data/uploads
     depends_on:
