@@ -10,13 +10,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY pyproject.toml /app/pyproject.toml
 COPY app/__init__.py /app/app/__init__.py
+
+# Install dependencies (cache layer — only re-runs when pyproject.toml changes)
 RUN pip install --no-cache-dir -U pip && pip install --no-cache-dir .
 
+# Copy full application code and re-install package (no-deps: deps already cached)
 COPY app /app/app
 COPY prompts /app/prompts
 COPY schemas /app/schemas
 COPY alembic /app/alembic
 COPY alembic.ini /app/alembic.ini
+RUN pip install --no-cache-dir --no-deps .
 
 EXPOSE 8001
 
