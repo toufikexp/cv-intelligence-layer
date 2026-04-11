@@ -2,6 +2,7 @@ services:
   cv-db:
     image: postgres:16
     environment:
+      TZ: Africa/Algiers
       POSTGRES_DB: cv_intelligence
       POSTGRES_USER: cv_user
       POSTGRES_PASSWORD: password
@@ -15,6 +16,8 @@ services:
 
   cv-redis:
     image: redis:7
+    environment:
+      TZ: Africa/Algiers
     ports:
       - "6380:6379"
 
@@ -22,6 +25,7 @@ services:
     build: .
     env_file: .env
     environment:
+      TZ: Africa/Algiers
       APP_ENV: development
       APP_PORT: 8001
       DATABASE_URL: postgresql+asyncpg://cv_user:password@cv-db:5432/cv_intelligence
@@ -45,6 +49,7 @@ services:
     command: celery -A app.tasks.celery_app worker --loglevel=info
     env_file: .env
     environment:
+      TZ: Africa/Algiers
       DATABASE_URL: postgresql+asyncpg://cv_user:password@cv-db:5432/cv_intelligence
       REDIS_URL: redis://cv-redis:6379/0
       CELERY_BROKER_URL: redis://cv-redis:6379/0
