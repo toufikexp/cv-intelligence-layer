@@ -50,7 +50,7 @@ services:
 
   cv-worker:
     build: .
-    command: celery -A app.tasks.celery_app worker --loglevel=info
+    command: celery -A app.tasks.celery_app worker --loglevel=info -Q default,ocr
     env_file: .env
     environment:
       TZ: Africa/Algiers
