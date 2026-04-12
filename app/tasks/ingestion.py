@@ -347,18 +347,30 @@ def submit_to_search(self, payload: dict[str, Any]) -> dict[str, Any]:
         )
     )
 
-    client = get_ingest_search_client()
-    try:
-        from app.models.schemas import CandidateProfile
+    from app.models.schemas import CandidateProfile
 
-        profile = CandidateProfile.model_validate(payload["profile"], strict=False)
-        doc = build_search_document(
-            file_hash=str(payload.get("file_hash", cv_id)),
-            profile=profile,
-            language=payload.get("language"),
-        )
-        result = asyncio.run(
-            client.ingest_documents(
+    profile = CandidateProfile.model_validate(payload["profile"], strict=False)
+
+    # Resolve the document external_id: prefer caller-supplied cv.external_id,
+    # fall back to file_hash so every document has a stable identifier.
+    cv_row = asyncio.run(_get_cv(cv_id))
+    resolved_external_id = (
+        (cv_row.external_id if cv_row and cv_row.external_id else None)
+        or str(payload.get("file_hash") or cv_id)
+    )
+
+    doc = build_search_document(
+        external_id=resolved_external_id,
+        profile=profile,
+        language=payload.get("language"),
+    )
+
+    async def _submit_and_close() -> dict[str, Any]:
+        # Client lifecycle confined to a single event loop to avoid
+        # "Event loop is closed" when aclose() runs in a fresh loop.
+        client = get_ingest_search_client()
+        try:
+            return await client.ingest_documents(
                 collection_id=uuid.UUID(payload["collection_id"]),
                 documents=[
                     {
@@ -369,9 +381,10 @@ def submit_to_search(self, payload: dict[str, Any]) -> dict[str, Any]:
                 ],
                 upsert=True,
             )
-        )
-    finally:
-        asyncio.run(client.aclose())
+        finally:
+            await client.aclose()
+
+    result = asyncio.run(_submit_and_close())
 
     # Store the Semantic Search ingest job_id for webhook correlation
     ingest_job_id = result.get("job_id")

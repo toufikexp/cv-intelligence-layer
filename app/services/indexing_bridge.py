@@ -13,8 +13,20 @@ class SearchDocument:
     metadata: dict[str, Any]
 
 
-def build_search_document(*, file_hash: str, profile: CandidateProfile, language: str | None) -> SearchDocument:
-    """Transform a CandidateProfile into a Semantic Search document."""
+def build_search_document(
+    *,
+    external_id: str,
+    profile: CandidateProfile,
+    language: str | None,
+) -> SearchDocument:
+    """Transform a CandidateProfile into a Semantic Search document.
+
+    Args:
+        external_id: Stable document identifier (caller-supplied external_id,
+            falling back to file_hash when the caller omits it).
+        profile: Extracted CandidateProfile.
+        language: Detected language code.
+    """
 
     skills = profile.skills or []
     exp = profile.experience or []
@@ -42,5 +54,9 @@ def build_search_document(*, file_hash: str, profile: CandidateProfile, language
         "location": profile.location,
         "education_level": (edu[0].degree.lower() if edu and edu[0].degree else None),
     }
-    return SearchDocument(external_id=file_hash, content=content, metadata={k: v for k, v in metadata.items() if v is not None})
+    return SearchDocument(
+        external_id=external_id,
+        content=content,
+        metadata={k: v for k, v in metadata.items() if v is not None},
+    )
 
