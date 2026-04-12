@@ -10,7 +10,6 @@ from celery import chain
 from celery.utils.log import get_task_logger
 from sqlalchemy import select, update
 
-from app.models.database import SessionLocal
 from app.models.database import CVProcessingJob, CVProfile
 from app.services.document_processor import DocumentProcessor
 from app.services.entity_extractor import EntityExtractor
@@ -24,22 +23,45 @@ from app.utils.language_detect import detect_language
 logger = get_task_logger(__name__)
 
 
+def _make_session() -> tuple:
+    """Create a disposable async engine + session factory for Celery tasks.
+
+    Celery forks workers, so the module-level engine from database.py holds
+    stale asyncpg connections.  Each task call gets a fresh engine that is
+    disposed after use.
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    from app.config import get_settings
+
+    eng = create_async_engine(get_settings().database_url)
+    session_factory = async_sessionmaker(eng, expire_on_commit=False, class_=AsyncSession)
+    return eng, session_factory
+
+
 async def _update_job(job_id: uuid.UUID, **fields: Any) -> None:
-    async with SessionLocal() as db:
+    eng, Session = _make_session()
+    async with Session() as db:
         await db.execute(update(CVProcessingJob).where(CVProcessingJob.job_id == job_id).values(**fields))
         await db.commit()
+    await eng.dispose()
 
 
 async def _update_cv(cv_id: uuid.UUID, **fields: Any) -> None:
-    async with SessionLocal() as db:
+    eng, Session = _make_session()
+    async with Session() as db:
         await db.execute(update(CVProfile).where(CVProfile.cv_id == cv_id).values(**fields))
         await db.commit()
+    await eng.dispose()
 
 
 async def _get_cv(cv_id: uuid.UUID) -> CVProfile | None:
-    async with SessionLocal() as db:
+    eng, Session = _make_session()
+    async with Session() as db:
         res = await db.execute(select(CVProfile).where(CVProfile.cv_id == cv_id))
-        return res.scalar_one_or_none()
+        result = res.scalar_one_or_none()
+    await eng.dispose()
+    return result
 
 
 def start_cv_ingestion(
@@ -266,7 +288,8 @@ def store_profile(self, payload: dict[str, Any]) -> dict[str, Any]:
     )
 
     async def _store() -> None:
-        async with SessionLocal() as db:
+        eng, Session = _make_session()
+        async with Session() as db:
             await db.execute(
                 update(CVProfile)
                 .where(CVProfile.cv_id == cv_id)
@@ -282,6 +305,7 @@ def store_profile(self, payload: dict[str, Any]) -> dict[str, Any]:
                 )
             )
             await db.commit()
+        await eng.dispose()
 
     asyncio.run(_store())
 
