@@ -46,6 +46,117 @@ def _extract_urls(text: str) -> dict[str, str | None]:
     return {"linkedin_url": linkedin, "github_url": github, "portfolio_url": portfolio}
 
 
+def _normalize_llm_output(data: dict[str, Any]) -> dict[str, Any]:
+    """Map common Gemini output variations to the canonical CandidateProfile shape.
+
+    Gemini doesn't always honor the prompt schema strictly. This function
+    defensively handles the most common variations so downstream Pydantic
+    validation succeeds.
+    """
+    # 1. Flatten contact_info if nested
+    contact = data.pop("contact_info", None) or {}
+    if isinstance(contact, dict):
+        for key in ("name", "email", "phone", "location", "linkedin_url", "github_url", "portfolio_url"):
+            if contact.get(key) and not data.get(key):
+                data[key] = contact[key]
+
+    # 2. Flatten skills if dict-of-lists (Gemini often groups by category)
+    skills = data.get("skills")
+    if isinstance(skills, dict):
+        flat: list[str] = []
+        for v in skills.values():
+            if isinstance(v, list):
+                flat.extend(str(s).strip() for s in v if s)
+            elif isinstance(v, str) and v.strip():
+                flat.append(v.strip())
+        data["skills"] = flat
+    elif isinstance(skills, list):
+        data["skills"] = [str(s).strip() for s in skills if s]
+    elif skills is None:
+        data["skills"] = []
+
+    # 3. Normalize each experience entry
+    experience = data.get("experience") or []
+    if isinstance(experience, list):
+        for exp in experience:
+            if not isinstance(exp, dict):
+                continue
+            if "role" not in exp and "title" in exp:
+                exp["role"] = exp.pop("title")
+            if "role" not in exp and "position" in exp:
+                exp["role"] = exp.pop("position")
+            if "company" not in exp and "employer" in exp:
+                exp["company"] = exp.pop("employer")
+            desc = exp.get("description")
+            if isinstance(desc, list):
+                exp["description"] = "\n".join(str(d).strip() for d in desc if d)
+            elif isinstance(desc, dict):
+                exp["description"] = "\n".join(f"{k}: {v}" for k, v in desc.items() if v)
+
+    # 4. Normalize education entries
+    education = data.get("education") or []
+    if isinstance(education, list):
+        for edu in education:
+            if not isinstance(edu, dict):
+                continue
+            if "field" not in edu and "field_of_study" in edu:
+                edu["field"] = edu.pop("field_of_study")
+            if "institution" not in edu and "school" in edu:
+                edu["institution"] = edu.pop("school")
+            if "institution" not in edu and "university" in edu:
+                edu["institution"] = edu.pop("university")
+
+    # 5. Normalize languages: accept list[str] or list[dict] with varying keys
+    languages = data.get("languages") or []
+    if isinstance(languages, list):
+        normalized_langs: list[dict[str, str]] = []
+        level_map = {
+            "native": "native", "maternelle": "native", "natif": "native",
+            "fluent": "fluent", "courant": "fluent", "bilingue": "fluent",
+            "advanced": "advanced", "avance": "advanced", "avancé": "advanced",
+            "intermediate": "intermediate", "intermediaire": "intermediate", "intermédiaire": "intermediate",
+            "beginner": "beginner", "debutant": "beginner", "débutant": "beginner", "basic": "beginner",
+        }
+        for lang in languages:
+            if isinstance(lang, str):
+                # "Anglais (Courant)" or "English - Fluent"
+                import re as _re
+                m = _re.match(r"^([^(\-–]+)[\s(\-–]+([^)]+)\)?$", lang.strip())
+                if m:
+                    name = m.group(1).strip()
+                    level_raw = m.group(2).strip().lower()
+                    level = level_map.get(level_raw, "intermediate")
+                    normalized_langs.append({"language": name, "level": level})
+                else:
+                    normalized_langs.append({"language": lang.strip(), "level": "intermediate"})
+            elif isinstance(lang, dict):
+                name = lang.get("language") or lang.get("name") or ""
+                level_raw = str(lang.get("level") or lang.get("proficiency") or "intermediate").strip().lower()
+                level = level_map.get(level_raw, "intermediate") if level_raw not in level_map.values() else level_raw
+                if name:
+                    normalized_langs.append({"language": str(name), "level": level})
+        data["languages"] = normalized_langs
+
+    # 6. Certifications: coerce list[dict] to list[str]
+    certs = data.get("certifications") or []
+    if isinstance(certs, list):
+        flat_certs: list[str] = []
+        for c in certs:
+            if isinstance(c, str) and c.strip():
+                flat_certs.append(c.strip())
+            elif isinstance(c, dict):
+                label = c.get("name") or c.get("title") or c.get("certification")
+                if label:
+                    flat_certs.append(str(label))
+        data["certifications"] = flat_certs
+
+    # 7. Ensure name exists (Pydantic requires it)
+    if not data.get("name"):
+        data["name"] = "Unknown"
+
+    return data
+
+
 class EntityExtractor:
     """Two-pass entity extraction: regex then LLM structured extraction."""
 
@@ -65,6 +176,9 @@ class EntityExtractor:
                 "cv_text": cv_text[:30000],
             },
         )
+
+        # Defensive normalization of Gemini output variations
+        data = _normalize_llm_output(data)
 
         # Prefer deterministic regex values when present
         if regex_email:
