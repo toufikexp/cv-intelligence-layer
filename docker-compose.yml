@@ -8,6 +8,8 @@ services:
       POSTGRES_PASSWORD: password
     ports:
       - "5434:5432"
+    volumes:
+      - cv-db-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cv_user -d cv_intelligence"]
       interval: 5s
@@ -68,3 +70,5 @@ services:
       cv-redis:
         condition: service_started
 
+volumes:
+  cv-db-data:
