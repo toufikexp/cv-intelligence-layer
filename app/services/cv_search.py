@@ -4,7 +4,7 @@ import time
 import uuid
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import CVProfile
@@ -40,22 +40,32 @@ class CVSearchService:
         facets = raw.get("facets")
 
         ext_ids = [str(h.get("external_id")) for h in hits if h.get("external_id")]
-        by_hash: dict[str, CVProfile] = {}
+        # Map every possible key (caller external_id, stored search_doc_external_id,
+        # or legacy file_hash) to its CVProfile row so hit lookup is O(1).
+        by_ext: dict[str, CVProfile] = {}
         if ext_ids:
             res = await db.execute(
                 select(CVProfile).where(
                     CVProfile.collection_id == req.collection_id,
-                    CVProfile.file_hash.in_(ext_ids),
+                    or_(
+                        CVProfile.search_doc_external_id.in_(ext_ids),
+                        CVProfile.external_id.in_(ext_ids),
+                        CVProfile.file_hash.in_(ext_ids),
+                    ),
                 )
             )
             for row in res.scalars().all():
-                by_hash[row.file_hash] = row
+                if row.search_doc_external_id:
+                    by_ext[row.search_doc_external_id] = row
+                if row.external_id:
+                    by_ext[row.external_id] = row
+                by_ext[row.file_hash] = row
 
         results: list[CVSearchResult] = []
         for h in hits:
             ext = h.get("external_id")
             ext_s = str(ext) if ext is not None else None
-            cv = by_hash.get(ext_s) if ext_s else None
+            cv = by_ext.get(ext_s) if ext_s else None
             score = h.get("score")
             if score is None:
                 score = h.get("semantic_score")
