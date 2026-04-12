@@ -60,6 +60,19 @@ def _normalize_llm_output(data: dict[str, Any]) -> dict[str, Any]:
             if contact.get(key) and not data.get(key):
                 data[key] = contact[key]
 
+    # 1b. Coerce name: accept dict {first_name, last_name} or {given, family}
+    name = data.get("name")
+    if isinstance(name, dict):
+        parts = [
+            str(name.get("first_name") or name.get("given") or name.get("firstName") or "").strip(),
+            str(name.get("middle_name") or name.get("middle") or "").strip(),
+            str(name.get("last_name") or name.get("family") or name.get("lastName") or "").strip(),
+        ]
+        full = " ".join(p for p in parts if p)
+        data["name"] = full or name.get("full_name") or name.get("name") or ""
+    elif name is not None and not isinstance(name, str):
+        data["name"] = str(name)
+
     # 2. Flatten skills if dict-of-lists (Gemini often groups by category)
     skills = data.get("skills")
     if isinstance(skills, dict):
