@@ -12,15 +12,17 @@ COPY pyproject.toml /app/pyproject.toml
 COPY app/__init__.py /app/app/__init__.py
 
 # Install dependencies (cache layer — only re-runs when pyproject.toml changes)
-RUN pip install --no-cache-dir -U pip && pip install --no-cache-dir .
+# Then remove the app package from site-packages so Python finds app/ from WORKDIR
+RUN pip install --no-cache-dir -U pip \
+    && pip install --no-cache-dir . \
+    && pip uninstall -y cv-intelligence-layer
 
-# Copy full application code and re-install package (no-deps: deps already cached)
+# Copy application code (Python resolves "app" from WORKDIR /app)
 COPY app /app/app
 COPY prompts /app/prompts
 COPY schemas /app/schemas
 COPY alembic /app/alembic
 COPY alembic.ini /app/alembic.ini
-RUN pip install --no-cache-dir --no-deps --force-reinstall .
 
 EXPOSE 8001
 
