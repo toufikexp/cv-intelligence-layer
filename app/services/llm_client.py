@@ -49,7 +49,12 @@ class LLMClient:
 
     async def complete_json(self, *, prompt_key: str, variables: dict[str, Any]) -> dict[str, Any]:
         bundle = self._prompts[prompt_key]
-        user = bundle.user_template.format(**variables)
+        # Use literal replacement instead of str.format() because the templates
+        # embed JSON schemas with real { and } characters that .format() would
+        # parse as placeholders and raise KeyError on.
+        user = bundle.user_template
+        for key, value in variables.items():
+            user = user.replace("{" + key + "}", str(value))
         start = time.perf_counter()
         if self._provider == "gemini":
             result = await self._complete_gemini_json(system=bundle.system, user=user)

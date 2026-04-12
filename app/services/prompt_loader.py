@@ -10,11 +10,21 @@ class PromptBundle:
 
 
 def load_prompt(path: Path) -> PromptBundle:
-    """Load a prompt markdown file and extract system + user template sections."""
+    """Load a prompt markdown file and extract system + user template sections.
+
+    The markdown is expected to contain:
+        ## System Prompt
+        <one paragraph of instructions>
+
+        ## User Prompt Template
+        ```
+        <template with {placeholders}>
+        ```
+
+        ## Few-Shot Examples   (optional, ignored)
+    """
 
     text = path.read_text(encoding="utf-8")
-    # Minimal parsing: split by headings used in provided prompt files
-    # We only need the "System Prompt" paragraph and the fenced template block under "User Prompt Template".
     system_marker = "## System Prompt"
     user_marker = "## User Prompt Template"
     sys_idx = text.find(system_marker)
@@ -24,16 +34,20 @@ def load_prompt(path: Path) -> PromptBundle:
 
     system_section = text[sys_idx + len(system_marker) : user_idx].strip()
 
-    # Extract first fenced block after User Prompt Template
+    # Extract the first fenced block after "## User Prompt Template".
+    # Bounds: opening fence ``` → newline → content → closing fence ```
     after_user = text[user_idx + len(user_marker) :]
     fence = "```"
-    f1 = after_user.find(fence)
-    f2 = after_user.find(fence, f1 + len(fence))
-    f3 = after_user.find(fence, f2 + len(fence))
-    if f1 == -1 or f2 == -1 or f3 == -1:
-        raise ValueError(f"Prompt template fence not found: {path}")
+    open_fence = after_user.find(fence)
+    if open_fence == -1:
+        raise ValueError(f"Prompt template opening fence not found: {path}")
+    # Skip the rest of the opening fence line (handles ```, ```text, ```python, etc.)
+    eol = after_user.find("\n", open_fence)
+    content_start = eol + 1 if eol != -1 else open_fence + len(fence)
+    close_fence = after_user.find(fence, content_start)
+    if close_fence == -1:
+        raise ValueError(f"Prompt template closing fence not found: {path}")
 
-    # f1..f2 contains optional language tag line, template starts after f2 newline
-    template = after_user[f2 + len(fence) : f3].strip("\n")
+    template = after_user[content_start:close_fence].strip("\n")
     return PromptBundle(system=system_section, user_template=template.strip())
 
