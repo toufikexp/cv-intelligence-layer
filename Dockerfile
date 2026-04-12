@@ -20,7 +20,7 @@ COPY prompts /app/prompts
 COPY schemas /app/schemas
 COPY alembic /app/alembic
 COPY alembic.ini /app/alembic.ini
-RUN pip install --no-cache-dir --no-deps .
+RUN pip install --no-cache-dir --no-deps --force-reinstall .
 
 EXPOSE 8001
 
