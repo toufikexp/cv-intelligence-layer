@@ -17,38 +17,31 @@ def build_search_document(
     *,
     external_id: str,
     profile: CandidateProfile,
+    raw_text: str,
     language: str | None,
 ) -> SearchDocument:
-    """Transform a CandidateProfile into a Semantic Search document.
+    """Transform a CandidateProfile + raw CV text into a Semantic Search document.
 
     Args:
-        external_id: Stable document identifier (caller-supplied external_id,
-            falling back to file_hash when the caller omits it).
-        profile: Extracted CandidateProfile.
+        external_id: Caller-supplied stable document identifier.
+        profile: Extracted CandidateProfile (used only for metadata derivation).
+        raw_text: Raw CV text extracted by the document pipeline. This becomes
+            the document ``content`` so semantic recall matches against the
+            full CV body rather than a short formatted projection.
         language: Detected language code.
     """
 
-    skills = profile.skills or []
-    exp = profile.experience or []
     edu = profile.education or []
 
-    exp_summary = ", ".join(f"{e.role} at {e.company}" for e in exp[:6] if e.role and e.company)
-    edu_summary = ", ".join(
-        " ".join([p for p in [e.degree, e.institution] if p]) for e in edu[:3] if e.institution
-    )
-
-    content = "\n".join(
-        [
-            f"{profile.current_title or ''} | {profile.name}".strip(" |"),
-            f"Skills: {', '.join(skills)}" if skills else "Skills:",
-            f"Experience: {exp_summary}" if exp_summary else "Experience:",
-            f"Education: {edu_summary}" if edu_summary else "Education:",
-            profile.summary or "",
-        ]
-    ).strip()
+    content = (raw_text or "").strip()
+    if not content:
+        # Defensive: Semantic Search rejects empty content. Fall back to the
+        # least-bad projection of the profile so the document is still
+        # indexable even when text extraction produced nothing.
+        content = (profile.summary or profile.name or "").strip()
 
     metadata: dict[str, Any] = {
-        "skills": skills,
+        "skills": profile.skills or [],
         "experience_years": int(profile.total_experience_years or 0),
         "language": language or "mixed",
         "location": profile.location,
@@ -59,4 +52,3 @@ def build_search_document(
         content=content,
         metadata={k: v for k, v in metadata.items() if v is not None},
     )
-

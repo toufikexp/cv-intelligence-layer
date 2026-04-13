@@ -28,6 +28,7 @@ async def test_cv_search_maps_file_hash_to_cv_id() -> None:
     now = datetime.now(timezone.utc)
     cv = CVProfile(
         cv_id=cv_pk,
+        external_id="deadbeef",
         collection_id=cid,
         file_hash="deadbeef",
         candidate_name="Test User",
@@ -50,6 +51,7 @@ async def test_cv_search_maps_file_hash_to_cv_id() -> None:
 
     assert len(out.results) == 1
     assert out.results[0].cv_id == cv_pk
+    assert out.results[0].external_id == "deadbeef"
     assert out.results[0].score == pytest.approx(0.91)
     assert out.total == 1
     assert out.took_ms >= 0

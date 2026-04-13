@@ -53,7 +53,7 @@ paths:
           multipart/form-data:
             schema:
               type: object
-              required: [file, collection_id]
+              required: [file, collection_id, external_id]
               properties:
                 file:
                   type: string
@@ -65,8 +65,12 @@ paths:
                   description: Target collection ID
                 external_id:
                   type: string
+                  minLength: 1
                   maxLength: 255
-                  description: Optional external ID from the hiring platform
+                  description: |
+                    Caller-supplied stable ID (e.g. the hiring platform's
+                    internal candidate record ID). Must be unique within
+                    the collection.
                 callback_url:
                   type: string
                   format: uri
@@ -85,7 +89,10 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         "409":
-          description: Duplicate file (same hash already exists in collection)
+          description: |
+            Duplicate. Either the same `file_hash` already exists in the
+            collection (`DUPLICATE_FILE`) or the same `external_id`
+            already exists in the collection (`DUPLICATE_EXTERNAL_ID`).
           content:
             application/json:
               schema:
@@ -591,6 +598,11 @@ components:
         cv_id:
           type: string
           format: uuid
+          nullable: true
+        external_id:
+          type: string
+          nullable: true
+          description: Caller-supplied stable ID echoed back from upload.
         score:
           type: number
         candidate_name:

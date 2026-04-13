@@ -53,7 +53,7 @@ def _stage_to_cv_status(stage: str | None) -> CVStatusEnum:
 async def upload_cv(
     file: UploadFile = File(...),
     collection_id: uuid.UUID = Form(...),
-    external_id: str | None = Form(default=None),
+    external_id: str = Form(..., min_length=1, max_length=255),
     callback_url: str | None = Form(default=None),
     _: str = Depends(get_api_key),
     db: AsyncSession = Depends(get_db),

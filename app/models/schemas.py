@@ -105,6 +105,7 @@ class CVSearchRequest(BaseModel):
 
 class CVSearchResult(BaseModel):
     cv_id: uuid.UUID | None = None
+    external_id: str | None = None
     score: float | None = None
     candidate_name: str | None = None
     current_title: str | None = None

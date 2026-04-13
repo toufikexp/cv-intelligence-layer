@@ -15,10 +15,28 @@ class CVService:
         *,
         db: AsyncSession,
         collection_id: uuid.UUID,
-        external_id: str | None,
+        external_id: str,
         file_hash: str,
         callback_url: str | None = None,
     ) -> tuple[CVProfile, CVProcessingJob]:
+        # Reject reuse of external_id within a collection first — it's the
+        # caller-owned business key and should collide loudly before we even
+        # consider file-level deduplication.
+        existing_ext = await db.execute(
+            select(CVProfile).where(
+                CVProfile.collection_id == collection_id,
+                CVProfile.external_id == external_id,
+            )
+        )
+        if existing_ext.scalar_one_or_none():
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "detail": f"external_id '{external_id}' already exists in this collection",
+                    "code": "DUPLICATE_EXTERNAL_ID",
+                },
+            )
+
         existing = await db.execute(
             select(CVProfile).where(CVProfile.collection_id == collection_id, CVProfile.file_hash == file_hash)
         )
