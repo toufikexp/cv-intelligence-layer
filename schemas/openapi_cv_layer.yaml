@@ -686,35 +686,28 @@ components:
 
     RankedCandidate:
       type: object
+      required: [cv_id, score, recommendation, reasoning]
       properties:
         cv_id:
           type: string
           format: uuid
-        rank:
-          type: integer
-        composite_score:
+        external_id:
+          type: string
+          nullable: true
+          description: Caller-supplied stable ID echoed from upload.
+        score:
           type: number
-        semantic_score:
-          type: number
-        skills_score:
-          type: number
-        experience_score:
-          type: number
-        education_score:
-          type: number
-        language_score:
-          type: number
+          description: |
+            Weighted composite score in [0, 1]. Higher is better. Results
+            are sorted by this field descending.
         recommendation:
           type: string
           enum: [strong_match, good_match, partial_match, weak_match]
         reasoning:
           type: string
-        candidate_name:
-          type: string
-        current_title:
-          type: string
         skills_analysis:
           type: object
+          nullable: true
           properties:
             matched_required:
               type: array

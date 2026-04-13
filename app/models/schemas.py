@@ -153,17 +153,10 @@ class SkillsAnalysis(BaseModel):
 
 class RankedCandidate(BaseModel):
     cv_id: uuid.UUID
-    rank: int
-    composite_score: float
-    semantic_score: float
-    skills_score: float
-    experience_score: float
-    education_score: float
-    language_score: float
+    external_id: str | None = None
+    score: float
     recommendation: RecommendationEnum
     reasoning: str
-    candidate_name: str | None = None
-    current_title: str | None = None
     skills_analysis: SkillsAnalysis | None = None
 
 

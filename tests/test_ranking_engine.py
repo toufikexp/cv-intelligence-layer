@@ -17,6 +17,7 @@ def _make_cv(file_hash: str, profile: CandidateProfile) -> CVProfile:
     now = datetime.now(timezone.utc)
     return CVProfile(
         cv_id=uuid.uuid4(),
+        external_id=file_hash,
         collection_id=uuid.uuid4(),
         file_hash=file_hash,
         search_doc_external_id=file_hash,
@@ -51,13 +52,13 @@ async def test_rank_composite_score(
 
     assert len(result.results) == 1
     candidate = result.results[0]
-    assert candidate.rank == 1
     assert candidate.cv_id == cv.cv_id
+    assert candidate.external_id == "abc123deadbeef"
 
     # Verify composite score: semantic=0.85, skills=0.8, exp=0.7, edu=0.6, lang=0.9
     w = DEFAULT_WEIGHTS
     expected = w["semantic"] * 0.85 + w["skills"] * 0.8 + w["experience"] * 0.7 + w["education"] * 0.6 + w["language"] * 0.9
-    assert candidate.composite_score == pytest.approx(expected, abs=0.01)
+    assert candidate.score == pytest.approx(expected, abs=0.01)
     assert candidate.recommendation == "good_match"
 
 
@@ -118,6 +119,4 @@ async def test_rank_multiple_sorted(
     result = await engine.rank(db=mock_db, req=req)
 
     assert len(result.results) == 2
-    assert result.results[0].rank == 1
-    assert result.results[1].rank == 2
-    assert result.results[0].composite_score >= result.results[1].composite_score
+    assert result.results[0].score >= result.results[1].score

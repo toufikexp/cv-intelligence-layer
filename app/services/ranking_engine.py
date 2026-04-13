@@ -132,17 +132,10 @@ class RankingEngine:
 
             return RankedCandidate(
                 cv_id=cv.cv_id,
-                rank=0,
-                composite_score=composite,
-                semantic_score=semantic_score,
-                skills_score=skills_score,
-                experience_score=experience_score,
-                education_score=education_score,
-                language_score=language_score,
+                external_id=cv.external_id,
+                score=composite,
                 recommendation=rec,
                 reasoning=llm_json.get("reasoning", ""),
-                candidate_name=cv.candidate_name,
-                current_title=profile.current_title,
                 skills_analysis=SkillsAnalysis(
                     matched_required=(llm_json.get("skills_analysis", {}) or {}).get("matched_required", []),
                     missing_required=(llm_json.get("skills_analysis", {}) or {}).get("missing_required", []),
@@ -150,8 +143,7 @@ class RankingEngine:
             )
 
         ranked = [r for r in await asyncio.gather(*(eval_one(h) for h in hits)) if r is not None]
-        ranked.sort(key=lambda r: r.composite_score, reverse=True)
-        ranked = [r.model_copy(update={"rank": i}) for i, r in enumerate(ranked, start=1)]
+        ranked.sort(key=lambda r: r.score, reverse=True)
 
         took_ms = int((time.perf_counter() - start) * 1000)
         return RankingResult(job_id=uuid.uuid4(), took_ms=took_ms, results=ranked)
