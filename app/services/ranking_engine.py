@@ -55,11 +55,19 @@ class RankingEngine:
         # expected hit shape: {external_id, score, metadata, ...}
         external_ids = [h.get("external_id") for h in hits if h.get("external_id")]
 
+        # Index CVs by every possible correlation key so `cvs.get(ext_id)`
+        # resolves regardless of whether the document was indexed under the
+        # caller-supplied external_id (new contract), the legacy
+        # search_doc_external_id, or the file_hash fallback (pre-0003 rows).
         cvs: dict[str, CVProfile] = {}
         if external_ids:
             res = await db.execute(select(CVProfile).where(CVProfile.collection_id == req.collection_id))
             for cv in res.scalars().all():
-                if cv.file_hash in external_ids or (cv.search_doc_external_id and cv.search_doc_external_id in external_ids):
+                if cv.external_id and cv.external_id in external_ids:
+                    cvs[cv.external_id] = cv
+                if cv.search_doc_external_id and cv.search_doc_external_id in external_ids:
+                    cvs[cv.search_doc_external_id] = cv
+                if cv.file_hash in external_ids:
                     cvs[cv.file_hash] = cv
 
         weights = DEFAULT_WEIGHTS.copy()
