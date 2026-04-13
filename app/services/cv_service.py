@@ -80,6 +80,29 @@ class CVService:
             raise HTTPException(status_code=404, detail={"detail": "CV not found", "code": "NOT_FOUND"})
         return cv
 
+    async def get_cv_by_external_id(
+        self,
+        *,
+        db: AsyncSession,
+        collection_id: uuid.UUID,
+        external_id: str,
+    ) -> CVProfile:
+        """Look up a CV by the caller-supplied business key.
+
+        `external_id` is only unique within a collection, so both values are
+        required. Mirrors `get_cv` semantics: raises 404 when not found.
+        """
+        res = await db.execute(
+            select(CVProfile).where(
+                CVProfile.collection_id == collection_id,
+                CVProfile.external_id == external_id,
+            )
+        )
+        cv = res.scalar_one_or_none()
+        if not cv:
+            raise HTTPException(status_code=404, detail={"detail": "CV not found", "code": "NOT_FOUND"})
+        return cv
+
     async def delete_cv(self, *, db: AsyncSession, cv_id: uuid.UUID) -> CVProfile:
         cv = await self.get_cv(db=db, cv_id=cv_id)
         await db.delete(cv)

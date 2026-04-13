@@ -114,3 +114,43 @@ async def test_get_cv_found() -> None:
     svc = CVService()
     result = await svc.get_cv(db=mock_db, cv_id=cv.cv_id)
     assert result.cv_id == cv.cv_id
+
+
+@pytest.mark.asyncio
+async def test_get_cv_by_external_id_found() -> None:
+    cv = MagicMock(spec=CVProfile)
+    cv.cv_id = uuid.uuid4()
+    cv.external_id = "EMP-001"
+
+    mock_db = AsyncMock()
+    exec_result = MagicMock()
+    exec_result.scalar_one_or_none.return_value = cv
+    mock_db.execute = AsyncMock(return_value=exec_result)
+
+    svc = CVService()
+    result = await svc.get_cv_by_external_id(
+        db=mock_db,
+        collection_id=uuid.uuid4(),
+        external_id="EMP-001",
+    )
+    assert result.cv_id == cv.cv_id
+    assert result.external_id == "EMP-001"
+
+
+@pytest.mark.asyncio
+async def test_get_cv_by_external_id_not_found_raises_404() -> None:
+    mock_db = AsyncMock()
+    exec_result = MagicMock()
+    exec_result.scalar_one_or_none.return_value = None
+    mock_db.execute = AsyncMock(return_value=exec_result)
+
+    svc = CVService()
+    with pytest.raises(HTTPException) as exc_info:
+        await svc.get_cv_by_external_id(
+            db=mock_db,
+            collection_id=uuid.uuid4(),
+            external_id="DOES-NOT-EXIST",
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail["code"] == "NOT_FOUND"

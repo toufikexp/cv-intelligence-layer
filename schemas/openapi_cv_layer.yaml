@@ -150,6 +150,90 @@ paths:
         "404":
           description: CV not found
 
+  # ── Candidates by external_id ──────────────────────────────────
+  # Address a CV using the caller-supplied business key
+  # (collection_id, external_id). Mirrors the /candidates/{cv_id}
+  # routes above; use whichever key the caller owns.
+  /api/v1/collections/{collection_id}/candidates/{external_id}:
+    get:
+      tags: [Candidates]
+      summary: Get CV profile by external_id
+      description: |
+        Retrieve the structured candidate profile using the caller-supplied
+        `external_id` (unique within a collection). Useful when the Hiring
+        Platform has not retained the CV layer's internal `cv_id`.
+      operationId: get_cv_by_external_id
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+        - name: collection_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: external_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 255 }
+      responses:
+        "200":
+          description: Candidate profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVProfileResponse'
+        "404":
+          description: CV not found in this collection
+
+    delete:
+      tags: [Candidates]
+      summary: Delete CV by external_id
+      description: |
+        Remove the CV profile and its search index entry using the
+        caller-supplied `external_id` within the given collection.
+      operationId: delete_cv_by_external_id
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+        - name: collection_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: external_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 255 }
+      responses:
+        "204":
+          description: CV deleted
+        "404":
+          description: CV not found in this collection
+
+  /api/v1/collections/{collection_id}/candidates/{external_id}/status:
+    get:
+      tags: [Candidates]
+      summary: Get CV processing status by external_id
+      description: |
+        Check the current processing status of a CV by its caller-supplied
+        `external_id` within the given collection.
+      operationId: get_cv_status_by_external_id
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+        - name: collection_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: external_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 255 }
+      responses:
+        "200":
+          description: Processing status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVStatusResponse'
+        "404":
+          description: CV not found in this collection
+
   # ── Search ─────────────────────────────────────────────────────
   /api/v1/candidates/search:
     post:

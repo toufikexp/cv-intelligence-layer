@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, File, Form, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_api_key
-from app.models.database import get_db
+from app.models.database import CVProcessingJob, CVProfile, get_db
 from app.models.schemas import (
     CVProfileResponse,
     CVSearchRequest,
@@ -49,6 +49,65 @@ def _stage_to_cv_status(stage: str | None) -> CVStatusEnum:
     return m.get(stage or "", "pending")
 
 
+def _cv_to_profile_response(cv: CVProfile) -> CVProfileResponse:
+    """Shared serialization for both cv_id and external_id GET handlers."""
+    profile: CandidateProfile | None = None
+    if cv.profile_data:
+        profile = CandidateProfile.model_validate(cv.profile_data, strict=False)
+    return CVProfileResponse(
+        cv_id=cv.cv_id,
+        external_id=cv.external_id,
+        collection_id=cv.collection_id,
+        status=_narrow_profile_status(cv.status),
+        language=cv.language,
+        extraction_method=cv.extraction_method,
+        profile=profile,
+        created_at=cv.created_at,
+        updated_at=cv.updated_at,
+    )
+
+
+def _build_status_response(cv: CVProfile, job: CVProcessingJob | None) -> CVStatusResponse:
+    """Shared status projection for both cv_id and external_id status handlers."""
+    if cv.status == "ready":
+        api_status: CVStatusEnum = "ready"
+    elif cv.status in ("failed", "index_failed"):
+        api_status = cv.status  # type: ignore[assignment]
+    elif job and job.status != "completed":
+        api_status = _stage_to_cv_status(job.stage)
+    else:
+        api_status = _stage_to_cv_status(job.stage if job else None)
+
+    return CVStatusResponse(
+        cv_id=cv.cv_id,
+        status=api_status,
+        current_stage=job.stage if job else None,
+        error_message=job.error_message if job else None,
+        progress_pct=job.progress_pct if job else None,
+        created_at=job.created_at if job else None,
+        completed_at=job.completed_at if job else None,
+    )
+
+
+async def _delete_cv_and_index(
+    *,
+    db: AsyncSession,
+    cv_service: CVService,
+    cv: CVProfile,
+) -> None:
+    """Shared teardown: remove the Search document then drop the DB row."""
+    external_id = cv.search_doc_external_id or cv.file_hash
+    client = get_ingest_search_client()
+    try:
+        await client.delete_document_if_exists(
+            collection_id=cv.collection_id,
+            external_id=external_id,
+        )
+    finally:
+        await client.aclose()
+    await cv_service.delete_cv(db=db, cv_id=cv.cv_id)
+
+
 @router.post("/candidates/upload", status_code=202, response_model=CVUploadResponse)
 async def upload_cv(
     file: UploadFile = File(...),
@@ -88,20 +147,7 @@ async def get_cv(
     cv_service: CVService = Depends(get_cv_service),
 ) -> CVProfileResponse:
     cv = await cv_service.get_cv(db=db, cv_id=cv_id)
-    profile: CandidateProfile | None = None
-    if cv.profile_data:
-        profile = CandidateProfile.model_validate(cv.profile_data, strict=False)
-    return CVProfileResponse(
-        cv_id=cv.cv_id,
-        external_id=cv.external_id,
-        collection_id=cv.collection_id,
-        status=_narrow_profile_status(cv.status),
-        language=cv.language,
-        extraction_method=cv.extraction_method,
-        profile=profile,
-        created_at=cv.created_at,
-        updated_at=cv.updated_at,
-    )
+    return _cv_to_profile_response(cv)
 
 
 @router.get("/candidates/{cv_id}/status", response_model=CVStatusResponse)
@@ -113,25 +159,7 @@ async def get_cv_status(
 ) -> CVStatusResponse:
     cv = await cv_service.get_cv(db=db, cv_id=cv_id)
     job = await cv_service.get_latest_processing_job(db=db, cv_id=cv_id)
-
-    if cv.status == "ready":
-        api_status: CVStatusEnum = "ready"
-    elif cv.status in ("failed", "index_failed"):
-        api_status = cv.status  # type: ignore[assignment]
-    elif job and job.status != "completed":
-        api_status = _stage_to_cv_status(job.stage)
-    else:
-        api_status = _stage_to_cv_status(job.stage if job else None)
-
-    return CVStatusResponse(
-        cv_id=cv.cv_id,
-        status=api_status,
-        current_stage=job.stage if job else None,
-        error_message=job.error_message if job else None,
-        progress_pct=job.progress_pct if job else None,
-        created_at=job.created_at if job else None,
-        completed_at=job.completed_at if job else None,
-    )
+    return _build_status_response(cv, job)
 
 
 @router.delete("/candidates/{cv_id}", status_code=204)
@@ -142,16 +170,67 @@ async def delete_cv(
     cv_service: CVService = Depends(get_cv_service),
 ) -> None:
     cv = await cv_service.get_cv(db=db, cv_id=cv_id)
-    external_id = cv.search_doc_external_id or cv.file_hash
-    client = get_ingest_search_client()
-    try:
-        await client.delete_document_if_exists(
-            collection_id=cv.collection_id,
-            external_id=external_id,
-        )
-    finally:
-        await client.aclose()
-    await cv_service.delete_cv(db=db, cv_id=cv_id)
+    await _delete_cv_and_index(db=db, cv_service=cv_service, cv=cv)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# External-id routes — let the Hiring Platform address CVs by its own business
+# key `(collection_id, external_id)` instead of the CV layer's internal cv_id.
+# These mirror the cv_id routes exactly; only the lookup step differs.
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/collections/{collection_id}/candidates/{external_id}",
+    response_model=CVProfileResponse,
+)
+async def get_cv_by_external_id(
+    collection_id: uuid.UUID,
+    external_id: str,
+    _: str = Depends(get_api_key),
+    db: AsyncSession = Depends(get_db),
+    cv_service: CVService = Depends(get_cv_service),
+) -> CVProfileResponse:
+    cv = await cv_service.get_cv_by_external_id(
+        db=db, collection_id=collection_id, external_id=external_id
+    )
+    return _cv_to_profile_response(cv)
+
+
+@router.get(
+    "/collections/{collection_id}/candidates/{external_id}/status",
+    response_model=CVStatusResponse,
+)
+async def get_cv_status_by_external_id(
+    collection_id: uuid.UUID,
+    external_id: str,
+    _: str = Depends(get_api_key),
+    db: AsyncSession = Depends(get_db),
+    cv_service: CVService = Depends(get_cv_service),
+) -> CVStatusResponse:
+    cv = await cv_service.get_cv_by_external_id(
+        db=db, collection_id=collection_id, external_id=external_id
+    )
+    job = await cv_service.get_latest_processing_job(db=db, cv_id=cv.cv_id)
+    return _build_status_response(cv, job)
+
+
+@router.delete(
+    "/collections/{collection_id}/candidates/{external_id}",
+    status_code=204,
+)
+async def delete_cv_by_external_id(
+    collection_id: uuid.UUID,
+    external_id: str,
+    _: str = Depends(get_api_key),
+    db: AsyncSession = Depends(get_db),
+    cv_service: CVService = Depends(get_cv_service),
+) -> None:
+    cv = await cv_service.get_cv_by_external_id(
+        db=db, collection_id=collection_id, external_id=external_id
+    )
+    await _delete_cv_and_index(db=db, cv_service=cv_service, cv=cv)
     return None
 
 
