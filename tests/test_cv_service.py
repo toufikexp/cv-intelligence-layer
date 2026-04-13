@@ -36,10 +36,11 @@ async def test_create_pending_cv_success() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_pending_cv_duplicate_raises_409() -> None:
+async def test_create_pending_cv_duplicate_external_id_raises_409() -> None:
     existing = MagicMock(spec=CVProfile)
     existing.cv_id = uuid.uuid4()
 
+    # The external_id check is the first lookup and returns a match.
     mock_db = AsyncMock()
     exec_result = MagicMock()
     exec_result.scalar_one_or_none.return_value = existing
@@ -50,11 +51,40 @@ async def test_create_pending_cv_duplicate_raises_409() -> None:
         await svc.create_pending_cv(
             db=mock_db,
             collection_id=uuid.uuid4(),
-            external_id=None,
+            external_id="EMP-001",
             file_hash="same_hash",
         )
 
     assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "DUPLICATE_EXTERNAL_ID"
+
+
+@pytest.mark.asyncio
+async def test_create_pending_cv_duplicate_file_hash_raises_409() -> None:
+    existing = MagicMock(spec=CVProfile)
+    existing.cv_id = uuid.uuid4()
+
+    # First call (external_id check) finds nothing, second call (file_hash
+    # check) finds a match.
+    ext_none = MagicMock()
+    ext_none.scalar_one_or_none.return_value = None
+    hash_hit = MagicMock()
+    hash_hit.scalar_one_or_none.return_value = existing
+
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(side_effect=[ext_none, hash_hit])
+
+    svc = CVService()
+    with pytest.raises(HTTPException) as exc_info:
+        await svc.create_pending_cv(
+            db=mock_db,
+            collection_id=uuid.uuid4(),
+            external_id="EMP-002",
+            file_hash="same_hash",
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "DUPLICATE_FILE"
 
 
 @pytest.mark.asyncio

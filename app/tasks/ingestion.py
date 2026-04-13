@@ -351,17 +351,19 @@ def submit_to_search(self, payload: dict[str, Any]) -> dict[str, Any]:
 
     profile = CandidateProfile.model_validate(payload["profile"], strict=False)
 
-    # Resolve the document external_id: prefer caller-supplied cv.external_id,
-    # fall back to file_hash so every document has a stable identifier.
+    # The document external_id is the caller-supplied cv.external_id. Upload
+    # enforces it as required, so this row must have it. No file_hash fallback.
     cv_row = asyncio.run(_get_cv(cv_id))
-    resolved_external_id = (
-        (cv_row.external_id if cv_row and cv_row.external_id else None)
-        or str(payload.get("file_hash") or cv_id)
-    )
+    if not cv_row or not cv_row.external_id:
+        raise RuntimeError(
+            f"cv_id={cv_id} has no external_id; upload must enforce it"
+        )
+    resolved_external_id = cv_row.external_id
 
     doc = build_search_document(
         external_id=resolved_external_id,
         profile=profile,
+        raw_text=payload.get("raw_text") or "",
         language=payload.get("language"),
     )
 

@@ -25,7 +25,7 @@ class CVProfile(Base):
     __tablename__ = "cv_profiles"
 
     cv_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
-    external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    external_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     collection_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
 
     candidate_name: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
@@ -51,6 +51,7 @@ class CVProfile(Base):
 
     __table_args__ = (
         UniqueConstraint("collection_id", "file_hash", name="uq_cv_profiles_collection_file_hash"),
+        UniqueConstraint("collection_id", "external_id", name="uq_cv_profiles_collection_external_id"),
         UniqueConstraint("collection_id", "email", name="uq_cv_profiles_collection_email"),
         Index("ix_cv_profiles_profile_data_gin", "profile_data", postgresql_using="gin"),
     )

@@ -91,6 +91,7 @@ class CVSearchService:
             results.append(
                 CVSearchResult(
                     cv_id=cv.cv_id if cv else None,
+                    external_id=(cv.external_id if cv and cv.external_id else ext_s),
                     score=float(score) if score is not None else None,
                     candidate_name=cand_name,
                     current_title=current_title,

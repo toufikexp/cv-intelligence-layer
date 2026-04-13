@@ -1,4 +1,4 @@
-"""Tests for the indexing bridge (CandidateProfile → Search document)."""
+"""Tests for the indexing bridge (CandidateProfile + raw_text → Search document)."""
 
 from __future__ import annotations
 
@@ -6,17 +6,36 @@ from app.models.schemas import CandidateProfile, EducationEntry
 from app.services.indexing_bridge import build_search_document
 
 
-def test_build_search_document_content(fake_candidate_profile: CandidateProfile) -> None:
-    doc = build_search_document(external_id="hash123", profile=fake_candidate_profile, language="fr")
+RAW_CV_TEXT = (
+    "Jean Dupont\n"
+    "Senior Data Engineer — Acme Corp\n"
+    "Experienced with Python, Spark, PostgreSQL. Built ETL pipelines and "
+    "a customer 360 datamart at Acme Corp between 2020 and 2024."
+)
 
-    assert doc.external_id == "hash123"
-    assert "Jean Dupont" in doc.content
-    assert "Python" in doc.content
-    assert "Acme Corp" in doc.content
+
+def test_build_search_document_content_is_raw_text(
+    fake_candidate_profile: CandidateProfile,
+) -> None:
+    doc = build_search_document(
+        external_id="ext-1",
+        profile=fake_candidate_profile,
+        raw_text=RAW_CV_TEXT,
+        language="fr",
+    )
+
+    assert doc.external_id == "ext-1"
+    # content must be the raw CV text (stripped), not the formatted projection
+    assert doc.content == RAW_CV_TEXT.strip()
 
 
 def test_build_search_document_metadata(fake_candidate_profile: CandidateProfile) -> None:
-    doc = build_search_document(external_id="hash123", profile=fake_candidate_profile, language="fr")
+    doc = build_search_document(
+        external_id="ext-1",
+        profile=fake_candidate_profile,
+        raw_text=RAW_CV_TEXT,
+        language="fr",
+    )
 
     assert doc.metadata["skills"] == fake_candidate_profile.skills
     assert doc.metadata["experience_years"] == 8
@@ -24,14 +43,33 @@ def test_build_search_document_metadata(fake_candidate_profile: CandidateProfile
     assert doc.metadata["location"] == "Algiers"
 
 
-def test_build_search_document_minimal() -> None:
+def test_build_search_document_minimal_uses_raw_text() -> None:
     profile = CandidateProfile(name="Minimal User")
-    doc = build_search_document(external_id="min_hash", profile=profile, language=None)
+    doc = build_search_document(
+        external_id="ext-min",
+        profile=profile,
+        raw_text="raw body content goes here",
+        language=None,
+    )
 
-    assert doc.external_id == "min_hash"
-    assert "Minimal User" in doc.content
+    assert doc.external_id == "ext-min"
+    assert doc.content == "raw body content goes here"
     assert doc.metadata["language"] == "mixed"
     assert doc.metadata["experience_years"] == 0
+
+
+def test_build_search_document_empty_raw_text_falls_back_to_profile() -> None:
+    # Defensive: Semantic Search rejects empty content, so the bridge should
+    # fall back to profile.summary / profile.name when raw_text is empty.
+    profile = CandidateProfile(name="Fallback User", summary="A short summary")
+    doc = build_search_document(
+        external_id="ext-empty",
+        profile=profile,
+        raw_text="",
+        language="en",
+    )
+
+    assert doc.content == "A short summary"
 
 
 def test_build_search_document_education_level() -> None:
@@ -39,6 +77,11 @@ def test_build_search_document_education_level() -> None:
         name="Edu User",
         education=[EducationEntry(institution="MIT", degree="PhD", field="CS")],
     )
-    doc = build_search_document(external_id="edu_hash", profile=profile, language="en")
+    doc = build_search_document(
+        external_id="ext-edu",
+        profile=profile,
+        raw_text="PhD in CS at MIT",
+        language="en",
+    )
 
     assert doc.metadata.get("education_level") == "phd"
