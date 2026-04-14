@@ -60,11 +60,41 @@ class CandidateProfile(BaseModel):
     total_experience_years: float | None = None
 
 
+class CandidateProfilePatch(BaseModel):
+    """Partial CandidateProfile for PATCH requests.
+
+    Every field is optional. Scalars are replaced when provided; list fields
+    are replaced wholesale (not merged element-wise). Unknown fields are
+    rejected so typos surface as 422 rather than being silently dropped.
+    Use ``model_dump(exclude_unset=True)`` at the merge site so omitted
+    fields leave the stored value untouched.
+    """
+
+    name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    location: str | None = None
+    current_title: str | None = None
+    summary: str | None = None
+    linkedin_url: AnyHttpUrl | None = None
+    github_url: AnyHttpUrl | None = None
+    portfolio_url: AnyHttpUrl | None = None
+    skills: list[str] | None = None
+    experience: list[ExperienceEntry] | None = None
+    education: list[EducationEntry] | None = None
+    languages: list[LanguageEntry] | None = None
+    certifications: list[str] | None = None
+    total_experience_years: float | None = None
+
+    model_config = {"extra": "forbid"}
+
+
 class CVUploadResponse(BaseModel):
     cv_id: uuid.UUID
     job_id: uuid.UUID
-    status: Literal["pending", "extracting", "indexing", "ready", "failed"] = "pending"
+    status: Literal["pending", "extracting", "indexing", "ready", "failed", "index_failed"] = "pending"
     file_hash: str | None = None
+    no_change: bool = False
 
 
 class CVDuplicateResponse(BaseModel):

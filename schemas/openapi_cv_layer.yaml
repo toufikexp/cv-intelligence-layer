@@ -131,6 +131,124 @@ paths:
         "404":
           description: CV not found
 
+    put:
+      tags: [Candidates]
+      summary: Replace CV file
+      description: |
+        Upload a new CV file for an existing candidate, preserving `cv_id`
+        and `external_id`. The previous `profile_data`, `raw_text`,
+        `language`, `extraction_method`, and denormalized fields are
+        wiped and the full ingestion pipeline is re-run. The Semantic
+        Search document is upserted under the same `external_id`, so the
+        index stays consistent (no orphan document).
+
+        If the uploaded bytes hash matches the stored `file_hash`, no
+        re-ingestion happens and the response is `200` with
+        `no_change: true`.
+      operationId: put_cv
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+        - $ref: '#/components/parameters/CVId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Replacement CV file (PDF or DOCX)
+                callback_url:
+                  type: string
+                  format: uri
+                  description: Optional override of the stored callback URL for this run
+      responses:
+        "200":
+          description: Uploaded bytes identical to stored file; no re-ingestion performed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVUploadResponse'
+        "202":
+          description: Replacement accepted; pipeline re-running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVUploadResponse'
+        "400":
+          description: Invalid file type or size
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "404":
+          description: CV not found
+        "409":
+          description: |
+            A different CV in the same collection already uses this file
+            hash (`DUPLICATE_FILE`). The existing `cv_id` is returned in
+            the error detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVDuplicateResponse'
+
+    patch:
+      tags: [Candidates]
+      summary: Patch structured profile fields
+      description: |
+        Partially update the stored `CandidateProfile`. Scalar fields are
+        replaced when provided; list fields (`skills`, `experience`,
+        `education`, `languages`, `certifications`) are replaced
+        wholesale when provided — omit a list to leave it unchanged, or
+        pass `[]` to clear it. Unknown fields produce `422`.
+
+        The updated profile is re-indexed **synchronously** in Semantic
+        Search, so the response reflects a consistent state.
+        `raw_text` is not modified; use PUT with a new file if the
+        underlying document changed.
+      operationId: patch_cv
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+        - $ref: '#/components/parameters/CVId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CandidateProfilePatch'
+      responses:
+        "200":
+          description: Updated candidate profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVProfileResponse'
+        "404":
+          description: CV not found
+        "409":
+          description: |
+            Either the CV is not fully ingested yet (`CV_NOT_READY`) or
+            the patched `email` already belongs to another CV in the same
+            collection (`DUPLICATE_EMAIL`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "422":
+          description: Patch validation error (unknown field, bad enum, invalid URL)
+        "502":
+          description: |
+            Semantic Search rejected the re-index (`UPSTREAM_SEARCH_ERROR`).
+            The CV is marked `index_failed`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/candidates/{cv_id}/status:
     get:
       tags: [Candidates]
@@ -205,6 +323,123 @@ paths:
           description: CV deleted
         "404":
           description: CV not found in this collection
+
+    put:
+      tags: [Candidates]
+      summary: Replace CV file by external_id
+      description: |
+        Upload a new CV file for an existing candidate addressed by the
+        Hiring Platform's business key. Semantics mirror
+        `PUT /api/v1/candidates/{cv_id}` exactly — the stored `cv_id`
+        and `external_id` are preserved, the ingestion pipeline re-runs,
+        and the Semantic Search document is upserted under the same
+        `external_id`.
+      operationId: put_cv_by_external_id
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+        - name: collection_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: external_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 255 }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                callback_url:
+                  type: string
+                  format: uri
+      responses:
+        "200":
+          description: Uploaded bytes identical to stored file; no re-ingestion performed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVUploadResponse'
+        "202":
+          description: Replacement accepted; pipeline re-running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVUploadResponse'
+        "400":
+          description: Invalid file type or size
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "404":
+          description: CV not found in this collection
+        "409":
+          description: |
+            A different CV in the same collection already uses this file
+            hash (`DUPLICATE_FILE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVDuplicateResponse'
+
+    patch:
+      tags: [Candidates]
+      summary: Patch profile by external_id
+      description: |
+        Partially update the stored `CandidateProfile` for the CV
+        addressed by the Hiring Platform's business key. Semantics mirror
+        `PATCH /api/v1/candidates/{cv_id}` exactly. The update is
+        re-indexed in Semantic Search synchronously.
+      operationId: patch_cv_by_external_id
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+        - name: collection_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: external_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 255 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CandidateProfilePatch'
+      responses:
+        "200":
+          description: Updated candidate profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVProfileResponse'
+        "404":
+          description: CV not found in this collection
+        "409":
+          description: |
+            CV not fully ingested (`CV_NOT_READY`) or the patched email
+            already belongs to another CV in this collection (`DUPLICATE_EMAIL`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "422":
+          description: Patch validation error
+        "502":
+          description: |
+            Semantic Search rejected the re-index (`UPSTREAM_SEARCH_ERROR`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /api/v1/collections/{collection_id}/candidates/{external_id}/status:
     get:
@@ -461,10 +696,17 @@ components:
           format: uuid
         status:
           type: string
-          enum: [pending, extracting, indexing, ready, failed]
+          enum: [pending, extracting, indexing, ready, failed, index_failed]
           default: pending
         file_hash:
           type: string
+        no_change:
+          type: boolean
+          default: false
+          description: |
+            Set to `true` on PUT when the uploaded bytes hash matches the
+            stored `file_hash` — the pipeline was not re-run and the
+            existing profile was returned unchanged.
 
     CVDuplicateResponse:
       type: object
@@ -533,6 +775,56 @@ components:
     CandidateProfile:
       type: object
       required: [name]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        location:
+          type: string
+        current_title:
+          type: string
+        summary:
+          type: string
+        linkedin_url:
+          type: string
+        github_url:
+          type: string
+        portfolio_url:
+          type: string
+        skills:
+          type: array
+          items:
+            type: string
+        experience:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExperienceEntry'
+        education:
+          type: array
+          items:
+            $ref: '#/components/schemas/EducationEntry'
+        languages:
+          type: array
+          items:
+            $ref: '#/components/schemas/LanguageEntry'
+        certifications:
+          type: array
+          items:
+            type: string
+        total_experience_years:
+          type: number
+
+    CandidateProfilePatch:
+      type: object
+      description: |
+        Partial `CandidateProfile` payload for PATCH requests. Every
+        field is optional. Scalars are replaced when provided; list
+        fields are replaced wholesale (omit to keep, `[]` to clear).
+        Unknown properties are rejected.
+      additionalProperties: false
       properties:
         name:
           type: string
