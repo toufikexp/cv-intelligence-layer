@@ -1,4 +1,6 @@
-# CV Intelligence Layer
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## What is this
 
@@ -68,6 +70,21 @@ ruff check app/ tests/
 - Structured JSON logging with `cv_id` and `job_id` correlation IDs
 - Error format: `{"detail": "msg", "code": "ERROR_CODE"}`
 
+## Key data model patterns
+
+**Two correlation keys on `CVProfile`** — understand the distinction before touching upload/search/rank code:
+- `external_id` — caller-supplied business key (e.g. `EMP-001`). NOT NULL, unique per `(collection_id, external_id)`. This is the authoritative join key echoed on search/rank results. The Hiring Platform uses this to correlate CV layer records with its own DB.
+- `file_hash` — SHA-256 of the file bytes. Used only for deduplication (`DUPLICATE_FILE` 409). Never use as a document id.
+- `search_doc_external_id` — legacy column; equals `external_id` for all rows created after migration `0003`. Kept for backward-compatibility with pre-migration rows.
+
+**Semantic Search document id** = `cv.external_id`. The `submit_to_search` task raises `RuntimeError` if `external_id` is None; never fall back to `file_hash`.
+
+**Indexing content** = raw CV text (`payload["raw_text"]`), not a formatted profile projection. `build_search_document` in `app/services/indexing_bridge.py` receives `raw_text` explicitly.
+
+**Two-phase ranking** (`app/services/ranking_engine.py`):
+1. Recall — semantic search via Search API (`hybrid` mode, `rerank=True`) to get top-N candidates.
+2. Scoring — parallel LLM calls (Gemini, concurrency controlled by `ranking_llm_concurrency` setting) produce per-component scores. Composite = weighted sum of `semantic` (0.30) + `skills` (0.25) + `experience` (0.25) + `education` (0.10) + `language` (0.10). Weights are overridable per-request via `RankingRequest.weights`.
+
 ## Project structure
 
 ```
@@ -87,12 +104,12 @@ app/
     document_processor.py   # PDF/DOCX text extraction
     ocr_service.py          # EasyOCR pipeline (fra+eng)
     entity_extractor.py     # Regex + LLM extraction + phone normalization
-    indexing_bridge.py      # CandidateProfile → Search API document
+    indexing_bridge.py      # CandidateProfile + raw_text → Search API document
     ranking_engine.py       # Semantic recall + LLM ranking
     answer_scorer.py        # Similarity + LLM grading
     search_client.py        # HTTP client for Semantic Search API
     llm_client.py           # Gemini / OpenAI-compatible wrapper
-    cv_service.py           # CV CRUD operations
+    cv_service.py           # CV CRUD + get_cv_by_external_id
     cv_search.py            # CV search via Semantic Search
     prompt_loader.py        # Prompt template loading
     ingestion_webhook_service.py  # Handles Semantic Search ingestion webhooks
@@ -104,30 +121,33 @@ app/
     webhook_signing.py      # HMAC-SHA256 signing/verification
 tests/
   conftest.py               # Shared fixtures and factories
-  test_health.py, test_entity_extractor.py, test_document_processor.py,
-  test_ranking_engine.py, test_answer_scorer.py, test_cv_service.py,
-  test_search_client.py, test_indexing_bridge.py, test_cv_search_service.py,
-  test_webhooks.py          # Webhook handler, signing, HP callback tests
 ```
 
 ## API endpoints
 
-All endpoints use prefix `/api/v1/candidates/` (except collections and health):
-
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | /api/v1/candidates/upload | Upload CV, triggers async pipeline |
-| GET | /api/v1/candidates/{cv_id} | Get structured candidate profile |
-| GET | /api/v1/candidates/{cv_id}/status | Check processing status |
-| DELETE | /api/v1/candidates/{cv_id} | Remove CV and search index |
+| POST | /api/v1/candidates/upload | Upload CV (PDF/DOCX), triggers async pipeline. `external_id` required. |
+| GET | /api/v1/candidates/{cv_id} | Get structured candidate profile by internal UUID |
+| GET | /api/v1/candidates/{cv_id}/status | Check processing status by internal UUID |
+| DELETE | /api/v1/candidates/{cv_id} | Remove CV and search index by internal UUID |
+| GET | /api/v1/collections/{collection_id}/candidates/{external_id} | Get profile by caller-supplied business key |
+| GET | /api/v1/collections/{collection_id}/candidates/{external_id}/status | Get status by business key |
+| DELETE | /api/v1/collections/{collection_id}/candidates/{external_id} | Delete by business key |
 | POST | /api/v1/candidates/search | Search CVs with filters/facets |
-| POST | /api/v1/candidates/rank | Rank candidates against JD |
+| POST | /api/v1/candidates/rank | Rank candidates against JD (synchronous) |
 | POST | /api/v1/candidates/score-answers | Score test answers |
 | POST | /api/v1/collections | Create collection |
 | GET | /api/v1/collections | List collections |
 | POST | /api/webhooks/ingestion | Semantic Search ingestion webhook |
 | GET | /health | Liveness probe |
 | GET | /ready | Readiness probe |
+
+## Docker / local dev notes
+
+`./app` and `./prompts` are bind-mounted into the containers — code changes take effect on restart, no rebuild needed. `./alembic` is **not** mounted, so new migration files require a full rebuild (`docker compose up -d --build cv-api cv-worker`).
+
+Accepted upload MIME types: `application/pdf` and `application/vnd.openxmlformats-officedocument.wordprocessingml.document` (`.docx` only — legacy `.doc` returns `400 INVALID_FILE_TYPE`).
 
 ## Key references (read on demand, don't memorize)
 
