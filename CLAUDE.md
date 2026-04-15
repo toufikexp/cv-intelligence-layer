@@ -130,9 +130,13 @@ tests/
 | POST | /api/v1/candidates/upload | Upload CV (PDF/DOCX), triggers async pipeline. `external_id` required. |
 | GET | /api/v1/candidates/{cv_id} | Get structured candidate profile by internal UUID |
 | GET | /api/v1/candidates/{cv_id}/status | Check processing status by internal UUID |
+| PUT | /api/v1/candidates/{cv_id} | Replace CV file, re-run pipeline (preserves `cv_id`/`external_id`) |
+| PATCH | /api/v1/candidates/{cv_id} | Partially update structured profile; re-indexes synchronously |
 | DELETE | /api/v1/candidates/{cv_id} | Remove CV and search index by internal UUID |
 | GET | /api/v1/collections/{collection_id}/candidates/{external_id} | Get profile by caller-supplied business key |
 | GET | /api/v1/collections/{collection_id}/candidates/{external_id}/status | Get status by business key |
+| PUT | /api/v1/collections/{collection_id}/candidates/{external_id} | Replace CV file by business key |
+| PATCH | /api/v1/collections/{collection_id}/candidates/{external_id} | Partially update profile by business key |
 | DELETE | /api/v1/collections/{collection_id}/candidates/{external_id} | Delete by business key |
 | POST | /api/v1/candidates/search | Search CVs with filters/facets |
 | POST | /api/v1/candidates/rank | Rank candidates against JD (synchronous) |

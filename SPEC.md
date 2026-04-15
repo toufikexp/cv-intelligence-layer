@@ -98,7 +98,14 @@ See `schemas/openapi_cv_layer.yaml` for the complete OpenAPI spec.
 | POST | /api/v1/candidates/upload | Upload CV file, triggers pipeline | Yes - returns job_id |
 | GET | /api/v1/candidates/{cv_id} | Get structured candidate profile | No |
 | GET | /api/v1/candidates/{cv_id}/status | Check processing status | No |
+| PUT | /api/v1/candidates/{cv_id} | Replace CV file, re-run full pipeline (preserves `cv_id`/`external_id`) | Yes - returns new job_id (or 200 `no_change` if file identical) |
+| PATCH | /api/v1/candidates/{cv_id} | Partial update of structured profile; re-indexes synchronously | No |
 | DELETE | /api/v1/candidates/{cv_id} | Remove CV and search index | No |
+| GET | /api/v1/collections/{collection_id}/candidates/{external_id} | Get profile by caller-supplied business key | No |
+| GET | /api/v1/collections/{collection_id}/candidates/{external_id}/status | Check processing status by business key | No |
+| PUT | /api/v1/collections/{collection_id}/candidates/{external_id} | Replace CV file by business key | Yes (or 200 `no_change`) |
+| PATCH | /api/v1/collections/{collection_id}/candidates/{external_id} | Partial profile update by business key | No |
+| DELETE | /api/v1/collections/{collection_id}/candidates/{external_id} | Delete CV by business key | No |
 | POST | /api/v1/candidates/search | Search CVs with filters/facets | No |
 | POST | /api/v1/candidates/rank | Rank candidates against JD | Yes for large sets |
 | POST | /api/v1/candidates/score-answers | Score test answers vs references | No |
