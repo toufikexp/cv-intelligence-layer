@@ -109,6 +109,12 @@ class RankingEngine:
                             f"- {e.degree or ''} {e.field or ''} — {e.institution} ({e.year or ''})"
                             for e in profile.education
                         ),
+                        "achievements_details": "\n".join(
+                            f"- {a.title}"
+                            + (f" ({a.year})" if a.year else "")
+                            + (f": {a.description}" if a.description else "")
+                            for a in profile.achievements
+                        ) or "(none)",
                         "summary": profile.summary or "",
                     },
                 )

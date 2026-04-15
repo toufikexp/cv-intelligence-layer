@@ -35,6 +35,9 @@ Experience History:
 Education:
 {education_details}
 
+Notable Achievements:
+{achievements_details}
+
 Summary: {summary}
 
 ---

@@ -60,6 +60,13 @@ Return a JSON object matching this exact schema:
   "certifications": [
     "Certification name and issuing body (string)"
   ],
+  "achievements": [
+    {
+      "title": "Short name of the project or realization (string, required)",
+      "year": "YYYY or null (string or null)",
+      "description": "1-2 sentence description highlighting scope and measurable impact (string or null)"
+    }
+  ],
   "total_experience_years": "Estimated total years of professional experience (number or null)"
 }
 
@@ -70,7 +77,8 @@ Rules:
 4. For experience entries: order from most recent to oldest.
 5. For phone numbers: normalize to international format (e.g., +213 XXX XXX XXX for Algerian, +33 X XX XX XX XX for French).
 6. Estimate total_experience_years by summing non-overlapping employment periods. If dates are ambiguous, provide a best estimate.
-7. Return ONLY the JSON object. No markdown backticks, no explanation text.
+7. Achievements are **discrete, named projects/realizations** that stand on their own — typically found under headings like "Projets", "Réalisations", "Key Projects", "Achievements", "Projets notables". Do NOT duplicate generic job responsibilities already captured in `experience[].description`. If the CV has no such section and no clearly-named project, return an empty array.
+8. Return ONLY the JSON object. No markdown backticks, no explanation text.
 ```
 
 ## Few-Shot Examples
@@ -93,6 +101,10 @@ Ooredoo Algérie — Data Engineer Senior (Janvier 2022 – Présent)
 Djezzy — Analyste BI (Mars 2019 – Décembre 2021)
 - Création de tableaux de bord Power BI pour le suivi commercial
 - Analyse de la performance réseau
+
+RÉALISATIONS & PROJETS
+- Migration Data Lake vers AWS (2023) — Pilotage de la migration complète de l'infrastructure data vers AWS S3 + Glue + Athena. Réduction des coûts opérationnels de 35% et amélioration des temps de traitement de 60%.
+- Implémentation du modèle ML Churn Prediction (2022) — Développement et déploiement d'un modèle de prédiction du churn client avec une précision de 87%.
 
 FORMATION
 Master en Informatique — Université USTHB, Alger (2018)
@@ -156,6 +168,18 @@ Arabe (natif), Français (courant), Anglais (intermédiaire)
     { "language": "English", "level": "intermediate" }
   ],
   "certifications": [],
+  "achievements": [
+    {
+      "title": "Migration Data Lake vers AWS",
+      "year": "2023",
+      "description": "Pilotage de la migration complète de l'infrastructure data vers AWS S3 + Glue + Athena. Réduction des coûts opérationnels de 35% et amélioration des temps de traitement de 60%."
+    },
+    {
+      "title": "Implémentation du modèle ML Churn Prediction",
+      "year": "2022",
+      "description": "Développement et déploiement d'un modèle de prédiction du churn client avec une précision de 87%."
+    }
+  ],
   "total_experience_years": 6
 }
 ```
@@ -230,6 +254,7 @@ AWS Solutions Architect Associate (2023)
   ],
   "languages": [],
   "certifications": ["AWS Solutions Architect Associate (2023)"],
+  "achievements": [],
   "total_experience_years": 5
 }
 ```

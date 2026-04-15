@@ -42,6 +42,18 @@ class LanguageEntry(BaseModel):
     level: LanguageLevel
 
 
+class AchievementEntry(BaseModel):
+    """A discrete project, realization, or notable accomplishment.
+
+    Distinct from ``ExperienceEntry``: an achievement is a named deliverable
+    (e.g. "Migration Data Lake vers AWS") rather than a job tenure.
+    """
+
+    title: str
+    year: str | None = None
+    description: str | None = None
+
+
 class CandidateProfile(BaseModel):
     name: str
     email: str | None = None
@@ -57,6 +69,7 @@ class CandidateProfile(BaseModel):
     education: list[EducationEntry] = Field(default_factory=list)
     languages: list[LanguageEntry] = Field(default_factory=list)
     certifications: list[str] = Field(default_factory=list)
+    achievements: list[AchievementEntry] = Field(default_factory=list)
     total_experience_years: float | None = None
 
 
@@ -84,6 +97,7 @@ class CandidateProfilePatch(BaseModel):
     education: list[EducationEntry] | None = None
     languages: list[LanguageEntry] | None = None
     certifications: list[str] | None = None
+    achievements: list[AchievementEntry] | None = None
     total_experience_years: float | None = None
 
     model_config = {"extra": "forbid"}

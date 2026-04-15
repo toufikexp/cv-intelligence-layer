@@ -814,6 +814,10 @@ components:
           type: array
           items:
             type: string
+        achievements:
+          type: array
+          items:
+            $ref: '#/components/schemas/AchievementEntry'
         total_experience_years:
           type: number
 
@@ -864,6 +868,10 @@ components:
           type: array
           items:
             type: string
+        achievements:
+          type: array
+          items:
+            $ref: '#/components/schemas/AchievementEntry'
         total_experience_years:
           type: number
 
@@ -906,6 +914,22 @@ components:
         level:
           type: string
           enum: [native, fluent, advanced, intermediate, beginner]
+
+    AchievementEntry:
+      type: object
+      description: |
+        A discrete, named project or realization (e.g. "Migration Data
+        Lake vers AWS"). Distinct from `ExperienceEntry`, which represents
+        a job tenure. Surfaced under the "Réalisations & Projets" section
+        on the Hiring Platform UI.
+      required: [title]
+      properties:
+        title:
+          type: string
+        year:
+          type: string
+        description:
+          type: string
 
     # ── Search Schemas ───────────────────────────────────────────
     CVSearchRequest:

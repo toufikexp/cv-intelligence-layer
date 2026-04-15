@@ -163,6 +163,32 @@ def _normalize_llm_output(data: dict[str, Any]) -> dict[str, Any]:
                     flat_certs.append(str(label))
         data["certifications"] = flat_certs
 
+    # 6b. Achievements: accept list[str] or list[dict] with varying keys
+    achievements = data.get("achievements") or []
+    if isinstance(achievements, list):
+        normalized_ach: list[dict[str, str | None]] = []
+        for item in achievements:
+            if isinstance(item, str) and item.strip():
+                normalized_ach.append({"title": item.strip(), "year": None, "description": None})
+            elif isinstance(item, dict):
+                title = item.get("title") or item.get("name") or item.get("project") or item.get("realization")
+                if not title:
+                    continue
+                year = item.get("year") or item.get("date") or item.get("when")
+                desc = item.get("description") or item.get("details") or item.get("summary")
+                if isinstance(desc, list):
+                    desc = "\n".join(str(d).strip() for d in desc if d)
+                normalized_ach.append(
+                    {
+                        "title": str(title).strip(),
+                        "year": str(year).strip() if year is not None else None,
+                        "description": str(desc).strip() if desc else None,
+                    }
+                )
+        data["achievements"] = normalized_ach
+    else:
+        data["achievements"] = []
+
     # 7. Ensure name exists (Pydantic requires it)
     if not data.get("name"):
         data["name"] = "Unknown"
