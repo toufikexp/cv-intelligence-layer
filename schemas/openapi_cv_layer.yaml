@@ -98,6 +98,87 @@ paths:
               schema:
                 $ref: '#/components/schemas/CVDuplicateResponse'
 
+  /api/v1/candidates:
+    post:
+      tags: [Candidates]
+      summary: Create candidate from JSON
+      description: |
+        Create a candidate profile from structured JSON data — no CV file
+        upload required. The endpoint builds synthetic text from the profile
+        fields, hashes it for deduplication, detects the language, indexes
+        the synthetic text in Semantic Search, and stores the profile with
+        status `ready`.
+
+        This is a synchronous endpoint: when the response returns, the
+        profile is fully persisted and searchable.
+      operationId: create_cv_from_json
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CandidateCreateRequest'
+            example:
+              collection_id: "550e8400-e29b-41d4-a716-446655440000"
+              external_id: "EMP-042"
+              profile:
+                name: "Amina Bensaid"
+                email: "amina@example.com"
+                phone: "+213555123456"
+                location: "Algiers"
+                current_title: "Senior Data Engineer"
+                summary: "8 years experience in data engineering and ML."
+                skills: ["Python", "Spark", "PostgreSQL", "Airflow"]
+                experience:
+                  - company: "Acme Corp"
+                    role: "Senior Data Engineer"
+                    start_date: "2020-01"
+                    end_date: "2024-01"
+                    description: "Led the data platform team."
+                education:
+                  - institution: "USTHB"
+                    degree: "Master"
+                    field: "Computer Science"
+                    year: "2016"
+                languages:
+                  - language: "French"
+                    level: "native"
+                  - language: "English"
+                    level: "fluent"
+                certifications: ["AWS Solutions Architect"]
+                achievements:
+                  - title: "Data Lake Migration"
+                    year: "2023"
+                    description: "Migrated to AWS S3 + Glue."
+      responses:
+        "200":
+          description: Candidate created and indexed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVProfileResponse'
+        "409":
+          description: |
+            Duplicate. Either `external_id` already exists in the collection
+            (`DUPLICATE_EXTERNAL_ID`) or the synthetic text hash matches an
+            existing CV (`DUPLICATE_FILE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "422":
+          description: Validation error (invalid profile fields)
+        "502":
+          description: |
+            Semantic Search ingest failed. The CV row is created with
+            `status: index_failed`. Retry is safe.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/candidates/{cv_id}:
     get:
       tags: [Candidates]
@@ -771,6 +852,30 @@ components:
         completed_at:
           type: string
           format: date-time
+
+    CandidateCreateRequest:
+      type: object
+      description: |
+        Create a candidate profile from structured JSON (no CV document).
+        The `profile` object follows the same structure as `CandidateProfile`.
+      required: [collection_id, external_id, profile]
+      additionalProperties: false
+      properties:
+        collection_id:
+          type: string
+          format: uuid
+          description: Target collection ID
+        external_id:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Caller-supplied stable ID, unique within the collection
+        profile:
+          $ref: '#/components/schemas/CandidateProfile'
+        callback_url:
+          type: string
+          format: uri
+          description: Optional webhook URL (stored but not called for sync create)
 
     CandidateProfile:
       type: object

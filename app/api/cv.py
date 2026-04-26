@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import uuid
 from typing import Literal
 
@@ -9,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.auth import get_api_key
 from app.models.database import CVProcessingJob, CVProfile, get_db
 from app.models.schemas import (
+    CandidateCreateRequest,
     CandidateProfile,
     CandidateProfilePatch,
     CVProfileResponse,
@@ -20,10 +22,11 @@ from app.models.schemas import (
 )
 from app.services.cv_search import get_cv_search_service
 from app.services.cv_service import CVService, get_cv_service
-from app.services.indexing_bridge import build_search_document
+from app.services.indexing_bridge import build_search_document, build_synthetic_text
 from app.services.search_client import get_ingest_search_client, get_search_client
 from app.tasks.ingestion import start_cv_ingestion
 from app.utils.file_validation import validate_and_persist_upload
+from app.utils.language_detect import detect_language
 
 router = APIRouter()
 
@@ -299,6 +302,69 @@ async def upload_cv(
         mime=file.content_type or "",
     )
     return CVUploadResponse(cv_id=cv.cv_id, job_id=job.job_id, status="pending", file_hash=file_hash)
+
+
+@router.post("/candidates", response_model=CVProfileResponse)
+async def create_cv_from_json(
+    req: CandidateCreateRequest,
+    _: str = Depends(get_api_key),
+    db: AsyncSession = Depends(get_db),
+    cv_service: CVService = Depends(get_cv_service),
+) -> CVProfileResponse:
+    """Create a candidate profile from structured JSON (no CV document).
+
+    Builds synthetic text from the profile, hashes it for deduplication,
+    detects language, ingests into Semantic Search synchronously, and
+    returns the fully-formed profile with status ``ready``.
+    """
+    synthetic_text = build_synthetic_text(req.profile)
+    file_hash = hashlib.sha256(synthetic_text.encode()).hexdigest()
+    lang = await detect_language(synthetic_text)
+
+    cv, _job = await cv_service.create_ready_cv(
+        db=db,
+        collection_id=req.collection_id,
+        external_id=req.external_id,
+        file_hash=file_hash,
+        profile=req.profile,
+        raw_text=synthetic_text,
+        language=lang,
+        callback_url=req.callback_url,
+    )
+
+    doc = build_search_document(
+        external_id=cv.external_id,
+        profile=req.profile,
+        raw_text=synthetic_text,
+        language=lang,
+    )
+    client = get_ingest_search_client()
+    try:
+        try:
+            await client.ingest_documents(
+                collection_id=req.collection_id,
+                documents=[
+                    {
+                        "external_id": doc.external_id,
+                        "content": doc.content,
+                        "metadata": doc.metadata,
+                    }
+                ],
+                upsert=True,
+            )
+        except Exception as exc:
+            await cv_service.mark_index_failed(db=db, cv=cv)
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "detail": f"Semantic Search ingest failed: {exc}",
+                    "code": "UPSTREAM_SEARCH_ERROR",
+                },
+            ) from exc
+    finally:
+        await client.aclose()
+
+    return _cv_to_profile_response(cv)
 
 
 @router.get("/candidates/{cv_id}", response_model=CVProfileResponse)

@@ -75,6 +75,85 @@ class CVService:
         await db.refresh(job)
         return cv, job
 
+    async def create_ready_cv(
+        self,
+        *,
+        db: AsyncSession,
+        collection_id: uuid.UUID,
+        external_id: str,
+        file_hash: str,
+        profile: CandidateProfile,
+        raw_text: str,
+        language: str | None,
+        callback_url: str | None = None,
+    ) -> tuple[CVProfile, CVProcessingJob]:
+        """Create a CV row from structured JSON (no document upload).
+
+        The row is born ``ready`` — no Celery pipeline. A companion
+        ``CVProcessingJob`` is created with ``status='completed'`` so the
+        ``/status`` endpoint returns consistent data.
+        """
+        existing_ext = await db.execute(
+            select(CVProfile).where(
+                CVProfile.collection_id == collection_id,
+                CVProfile.external_id == external_id,
+            )
+        )
+        if existing_ext.scalar_one_or_none():
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "detail": f"external_id '{external_id}' already exists in this collection",
+                    "code": "DUPLICATE_EXTERNAL_ID",
+                },
+            )
+
+        existing = await db.execute(
+            select(CVProfile).where(CVProfile.collection_id == collection_id, CVProfile.file_hash == file_hash)
+        )
+        found = existing.scalar_one_or_none()
+        if found:
+            raise HTTPException(
+                status_code=409,
+                detail={"detail": str(found.cv_id), "code": "DUPLICATE_FILE"},
+            )
+
+        now = datetime.utcnow()
+        cv = CVProfile(
+            cv_id=uuid.uuid4(),
+            external_id=external_id,
+            collection_id=collection_id,
+            file_hash=file_hash,
+            callback_url=callback_url,
+            status="ready",
+            profile_data=profile.model_dump(mode="json"),
+            raw_text=raw_text,
+            language=language,
+            extraction_method="json_input",
+            candidate_name=profile.name,
+            email=profile.email,
+            phone=profile.phone,
+            search_doc_external_id=external_id,
+            created_at=now,
+            updated_at=now,
+        )
+        job = CVProcessingJob(
+            job_id=uuid.uuid4(),
+            cv_id=cv.cv_id,
+            stage="completed",
+            status="completed",
+            progress_pct=100,
+            created_at=now,
+            updated_at=now,
+            completed_at=now,
+        )
+        db.add(cv)
+        db.add(job)
+        await db.commit()
+        await db.refresh(cv)
+        await db.refresh(job)
+        return cv, job
+
     async def get_cv(self, *, db: AsyncSession, cv_id: uuid.UUID) -> CVProfile:
         res = await db.execute(select(CVProfile).where(CVProfile.cv_id == cv_id))
         cv = res.scalar_one_or_none()

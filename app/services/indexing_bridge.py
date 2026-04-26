@@ -13,6 +13,73 @@ class SearchDocument:
     metadata: dict[str, Any]
 
 
+def build_synthetic_text(profile: CandidateProfile) -> str:
+    """Build a plain-text representation of a CandidateProfile.
+
+    Used by the JSON-create endpoint: the resulting text becomes both
+    ``raw_text`` (stored on the CV row) and the Semantic Search document
+    ``content`` (used for embedding / recall).
+    """
+    parts: list[str] = []
+
+    if profile.name:
+        parts.append(f"Name: {profile.name}")
+    if profile.current_title:
+        parts.append(f"Title: {profile.current_title}")
+    if profile.location:
+        parts.append(f"Location: {profile.location}")
+    if profile.email:
+        parts.append(f"Email: {profile.email}")
+    if profile.phone:
+        parts.append(f"Phone: {profile.phone}")
+
+    if profile.summary:
+        parts.append(f"\nSummary:\n{profile.summary}")
+
+    if profile.skills:
+        parts.append(f"\nSkills: {', '.join(profile.skills)}")
+
+    if profile.experience:
+        lines = ["Experience:"]
+        for e in profile.experience:
+            line = f"- {e.role} @ {e.company}"
+            if e.start_date or e.end_date:
+                line += f" ({e.start_date or ''} - {e.end_date or ''})"
+            if e.description:
+                line += f": {e.description}"
+            lines.append(line)
+        parts.append("\n" + "\n".join(lines))
+
+    if profile.education:
+        lines = ["Education:"]
+        for e in profile.education:
+            line = f"- {e.degree or ''} {e.field or ''} — {e.institution}"
+            if e.year:
+                line += f" ({e.year})"
+            lines.append(line)
+        parts.append("\n" + "\n".join(lines))
+
+    if profile.languages:
+        langs = ", ".join(f"{l.language} ({l.level})" for l in profile.languages)
+        parts.append(f"\nLanguages: {langs}")
+
+    if profile.certifications:
+        parts.append(f"\nCertifications: {', '.join(profile.certifications)}")
+
+    if profile.achievements:
+        lines = ["Achievements:"]
+        for a in profile.achievements:
+            line = f"- {a.title}"
+            if a.year:
+                line += f" ({a.year})"
+            if a.description:
+                line += f": {a.description}"
+            lines.append(line)
+        parts.append("\n" + "\n".join(lines))
+
+    return "\n".join(parts).strip()
+
+
 def build_search_document(
     *,
     external_id: str,

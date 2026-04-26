@@ -103,6 +103,17 @@ class CandidateProfilePatch(BaseModel):
     model_config = {"extra": "forbid"}
 
 
+class CandidateCreateRequest(BaseModel):
+    """Create a candidate profile from structured JSON (no CV document)."""
+
+    collection_id: uuid.UUID
+    external_id: str = Field(min_length=1, max_length=255)
+    profile: CandidateProfile
+    callback_url: str | None = None
+
+    model_config = {"extra": "forbid"}
+
+
 class CVUploadResponse(BaseModel):
     cv_id: uuid.UUID
     job_id: uuid.UUID

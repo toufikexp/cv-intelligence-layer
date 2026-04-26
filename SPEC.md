@@ -96,6 +96,7 @@ See `schemas/openapi_cv_layer.yaml` for the complete OpenAPI spec.
 | Method | Endpoint | Description | Async |
 |--------|----------|-------------|-------|
 | POST | /api/v1/candidates/upload | Upload CV file, triggers pipeline | Yes - returns job_id |
+| POST | /api/v1/candidates | Create candidate from JSON (no file) | No - synchronous |
 | GET | /api/v1/candidates/{cv_id} | Get structured candidate profile | No |
 | GET | /api/v1/candidates/{cv_id}/status | Check processing status | No |
 | PUT | /api/v1/candidates/{cv_id} | Replace CV file, re-run full pipeline (preserves `cv_id`/`external_id`) | Yes - returns new job_id (or 200 `no_change` if file identical) |

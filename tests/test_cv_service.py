@@ -340,3 +340,107 @@ async def test_mark_index_failed_sets_status_and_commits() -> None:
 
     assert cv.status == "index_failed"
     mock_db.commit.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# create_ready_cv (POST /candidates JSON-create)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_ready_cv_success() -> None:
+    mock_db = AsyncMock()
+    exec_result = MagicMock()
+    exec_result.scalar_one_or_none.return_value = None
+    mock_db.execute = AsyncMock(return_value=exec_result)
+
+    profile = CandidateProfile(
+        name="Amina Bensaid",
+        email="amina@example.com",
+        skills=["Python", "Spark"],
+    )
+
+    svc = CVService()
+    cv, job = await svc.create_ready_cv(
+        db=mock_db,
+        collection_id=uuid.uuid4(),
+        external_id="EMP-100",
+        file_hash="abc123",
+        profile=profile,
+        raw_text="Name: Amina Bensaid\nSkills: Python, Spark",
+        language="fr",
+    )
+
+    assert cv.status == "ready"
+    assert cv.external_id == "EMP-100"
+    assert cv.file_hash == "abc123"
+    assert cv.extraction_method == "json_input"
+    assert cv.candidate_name == "Amina Bensaid"
+    assert cv.email == "amina@example.com"
+    assert cv.raw_text == "Name: Amina Bensaid\nSkills: Python, Spark"
+    assert cv.language == "fr"
+    assert cv.profile_data["skills"] == ["Python", "Spark"]
+    assert cv.search_doc_external_id == "EMP-100"
+
+    assert job.stage == "completed"
+    assert job.status == "completed"
+    assert job.progress_pct == 100
+    assert job.completed_at is not None
+
+    mock_db.add.assert_called()
+    mock_db.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_create_ready_cv_duplicate_external_id_raises_409() -> None:
+    existing = MagicMock(spec=CVProfile)
+    existing.cv_id = uuid.uuid4()
+
+    mock_db = AsyncMock()
+    exec_result = MagicMock()
+    exec_result.scalar_one_or_none.return_value = existing
+    mock_db.execute = AsyncMock(return_value=exec_result)
+
+    svc = CVService()
+    with pytest.raises(HTTPException) as exc_info:
+        await svc.create_ready_cv(
+            db=mock_db,
+            collection_id=uuid.uuid4(),
+            external_id="EMP-DUPE",
+            file_hash="h",
+            profile=CandidateProfile(name="X"),
+            raw_text="text",
+            language="en",
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "DUPLICATE_EXTERNAL_ID"
+
+
+@pytest.mark.asyncio
+async def test_create_ready_cv_duplicate_file_hash_raises_409() -> None:
+    existing = MagicMock(spec=CVProfile)
+    existing.cv_id = uuid.uuid4()
+
+    ext_none = MagicMock()
+    ext_none.scalar_one_or_none.return_value = None
+    hash_hit = MagicMock()
+    hash_hit.scalar_one_or_none.return_value = existing
+
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(side_effect=[ext_none, hash_hit])
+
+    svc = CVService()
+    with pytest.raises(HTTPException) as exc_info:
+        await svc.create_ready_cv(
+            db=mock_db,
+            collection_id=uuid.uuid4(),
+            external_id="EMP-NEW",
+            file_hash="dupe_hash",
+            profile=CandidateProfile(name="X"),
+            raw_text="text",
+            language="en",
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "DUPLICATE_FILE"

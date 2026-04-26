@@ -1,13 +1,14 @@
-"""Tests for the PUT and PATCH helper flows in app/api/cv.py.
+"""Tests for the PUT, PATCH, and POST (JSON-create) helper flows in app/api/cv.py.
 
-These exercise ``_replace_cv_file`` and ``_apply_profile_patch`` directly
-instead of going through ``TestClient`` because the dependency graph
-(search client, Celery, file validation) is easier to stub at the helper
-boundary than via FastAPI's override system.
+These exercise ``_replace_cv_file``, ``_apply_profile_patch``, and
+``create_cv_from_json`` directly instead of going through ``TestClient``
+because the dependency graph (search client, Celery, file validation) is
+easier to stub at the helper boundary than via FastAPI's override system.
 """
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,10 +17,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException, Response
 
-from app.api.cv import _apply_profile_patch, _replace_cv_file
+from app.api.cv import _apply_profile_patch, _replace_cv_file, create_cv_from_json
 from app.models.database import CVProcessingJob, CVProfile
-from app.models.schemas import CandidateProfilePatch
+from app.models.schemas import CandidateCreateRequest, CandidateProfile, CandidateProfilePatch
 from app.services.cv_service import CVService
+from app.services.indexing_bridge import build_synthetic_text
 
 
 def _ready_cv(**overrides: object) -> CVProfile:
@@ -353,3 +355,191 @@ async def test_apply_profile_patch_rejects_unknown_fields() -> None:
     # Unknown fields should fail at Pydantic level, not reach the helper.
     with pytest.raises(Exception):  # ValidationError at model construction
         CandidateProfilePatch(not_a_real_field="x")  # type: ignore[call-arg]
+
+
+# ---------------------------------------------------------------------------
+# create_cv_from_json — POST /candidates (JSON-create)
+# ---------------------------------------------------------------------------
+
+
+def _make_create_request(**overrides: object) -> CandidateCreateRequest:
+    defaults: dict[str, object] = dict(
+        collection_id=uuid.uuid4(),
+        external_id="EMP-NEW",
+        profile=CandidateProfile(
+            name="Amina Bensaid",
+            email="amina@example.com",
+            skills=["Python", "Spark"],
+        ),
+    )
+    defaults.update(overrides)
+    return CandidateCreateRequest(**defaults)  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_create_cv_from_json_happy_path() -> None:
+    req = _make_create_request()
+    synthetic = build_synthetic_text(req.profile)
+    expected_hash = hashlib.sha256(synthetic.encode()).hexdigest()
+
+    now = datetime.now(timezone.utc)
+    cv = CVProfile(
+        cv_id=uuid.uuid4(),
+        external_id=req.external_id,
+        collection_id=req.collection_id,
+        file_hash=expected_hash,
+        status="ready",
+        profile_data=req.profile.model_dump(mode="json"),
+        raw_text=synthetic,
+        language="mixed",
+        extraction_method="json_input",
+        candidate_name=req.profile.name,
+        email=req.profile.email,
+        search_doc_external_id=req.external_id,
+        created_at=now,
+        updated_at=now,
+    )
+    job = CVProcessingJob(
+        job_id=uuid.uuid4(),
+        cv_id=cv.cv_id,
+        stage="completed",
+        status="completed",
+        progress_pct=100,
+    )
+
+    cv_service = MagicMock(spec=CVService)
+    cv_service.create_ready_cv = AsyncMock(return_value=(cv, job))
+    cv_service.mark_index_failed = AsyncMock()
+
+    mock_client = MagicMock()
+    mock_client.ingest_documents = AsyncMock(return_value={"job_id": "stub"})
+    mock_client.aclose = AsyncMock()
+
+    with (
+        patch("app.api.cv.get_ingest_search_client", return_value=mock_client),
+        patch("app.api.cv.detect_language", AsyncMock(return_value="mixed")),
+        patch("app.api.cv.get_api_key", return_value="test-key"),
+        patch("app.api.cv.get_cv_service", return_value=cv_service),
+    ):
+        result = await create_cv_from_json(
+            req=req,
+            _="test-key",
+            db=AsyncMock(),
+            cv_service=cv_service,
+        )
+
+    assert result.cv_id == cv.cv_id
+    assert result.external_id == req.external_id
+    assert result.status == "ready"
+    assert result.profile is not None
+    assert result.profile.name == "Amina Bensaid"
+    assert result.profile.skills == ["Python", "Spark"]
+
+    cv_service.create_ready_cv.assert_awaited_once()
+    call_kwargs = cv_service.create_ready_cv.call_args.kwargs
+    assert call_kwargs["external_id"] == "EMP-NEW"
+    assert call_kwargs["file_hash"] == expected_hash
+    assert call_kwargs["raw_text"] == synthetic
+
+    mock_client.ingest_documents.assert_awaited_once()
+    _, ingest_kwargs = mock_client.ingest_documents.call_args
+    assert ingest_kwargs["upsert"] is True
+    assert ingest_kwargs["documents"][0]["external_id"] == req.external_id
+    mock_client.aclose.assert_awaited_once()
+
+    cv_service.mark_index_failed.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_create_cv_from_json_search_failure_marks_index_failed() -> None:
+    req = _make_create_request()
+    synthetic = build_synthetic_text(req.profile)
+
+    now = datetime.now(timezone.utc)
+    cv = CVProfile(
+        cv_id=uuid.uuid4(),
+        external_id=req.external_id,
+        collection_id=req.collection_id,
+        file_hash="h",
+        status="ready",
+        profile_data=req.profile.model_dump(mode="json"),
+        raw_text=synthetic,
+        language="mixed",
+        extraction_method="json_input",
+        candidate_name=req.profile.name,
+        search_doc_external_id=req.external_id,
+        created_at=now,
+        updated_at=now,
+    )
+    job = CVProcessingJob(
+        job_id=uuid.uuid4(),
+        cv_id=cv.cv_id,
+        stage="completed",
+        status="completed",
+        progress_pct=100,
+    )
+
+    cv_service = MagicMock(spec=CVService)
+    cv_service.create_ready_cv = AsyncMock(return_value=(cv, job))
+    cv_service.mark_index_failed = AsyncMock()
+
+    mock_client = MagicMock()
+    mock_client.ingest_documents = AsyncMock(side_effect=RuntimeError("network down"))
+    mock_client.aclose = AsyncMock()
+
+    with (
+        patch("app.api.cv.get_ingest_search_client", return_value=mock_client),
+        patch("app.api.cv.detect_language", AsyncMock(return_value="mixed")),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            await create_cv_from_json(
+                req=req,
+                _="test-key",
+                db=AsyncMock(),
+                cv_service=cv_service,
+            )
+
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.detail["code"] == "UPSTREAM_SEARCH_ERROR"
+    cv_service.mark_index_failed.assert_awaited_once()
+    mock_client.aclose.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_create_cv_from_json_duplicate_external_id_raises_409() -> None:
+    req = _make_create_request()
+
+    cv_service = MagicMock(spec=CVService)
+    cv_service.create_ready_cv = AsyncMock(
+        side_effect=HTTPException(
+            status_code=409,
+            detail={"detail": "external_id 'EMP-NEW' already exists", "code": "DUPLICATE_EXTERNAL_ID"},
+        )
+    )
+
+    with (
+        patch("app.api.cv.detect_language", AsyncMock(return_value="mixed")),
+        patch("app.api.cv.get_ingest_search_client") as get_client,
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            await create_cv_from_json(
+                req=req,
+                _="test-key",
+                db=AsyncMock(),
+                cv_service=cv_service,
+            )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "DUPLICATE_EXTERNAL_ID"
+    get_client.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_create_cv_from_json_rejects_unknown_fields() -> None:
+    with pytest.raises(Exception):
+        CandidateCreateRequest(
+            collection_id=uuid.uuid4(),
+            external_id="EMP-X",
+            profile=CandidateProfile(name="X"),
+            bogus_field="should fail",  # type: ignore[call-arg]
+        )

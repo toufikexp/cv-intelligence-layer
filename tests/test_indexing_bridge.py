@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
-from app.models.schemas import CandidateProfile, EducationEntry
-from app.services.indexing_bridge import build_search_document
+from app.models.schemas import (
+    AchievementEntry,
+    CandidateProfile,
+    EducationEntry,
+    ExperienceEntry,
+    LanguageEntry,
+)
+from app.services.indexing_bridge import build_search_document, build_synthetic_text
 
 
 RAW_CV_TEXT = (
@@ -85,3 +91,62 @@ def test_build_search_document_education_level() -> None:
     )
 
     assert doc.metadata.get("education_level") == "phd"
+
+
+# ---------------------------------------------------------------------------
+# build_synthetic_text
+# ---------------------------------------------------------------------------
+
+
+def test_build_synthetic_text_full_profile() -> None:
+    profile = CandidateProfile(
+        name="Jean Dupont",
+        current_title="Senior Data Engineer",
+        location="Algiers",
+        email="jean@example.com",
+        phone="+213555123456",
+        summary="8 years experience in data engineering.",
+        skills=["Python", "Spark", "PostgreSQL"],
+        experience=[
+            ExperienceEntry(
+                company="Acme Corp",
+                role="Senior Developer",
+                start_date="2020-01",
+                end_date="2024-01",
+                description="Led backend team.",
+            ),
+        ],
+        education=[
+            EducationEntry(institution="USTHB", degree="Master", field="CS", year="2016"),
+        ],
+        languages=[
+            LanguageEntry(language="French", level="native"),
+            LanguageEntry(language="English", level="fluent"),
+        ],
+        certifications=["AWS Solutions Architect"],
+        achievements=[
+            AchievementEntry(title="Data Lake Migration", year="2023", description="Migrated to AWS S3"),
+        ],
+    )
+    text = build_synthetic_text(profile)
+
+    assert "Name: Jean Dupont" in text
+    assert "Title: Senior Data Engineer" in text
+    assert "Location: Algiers" in text
+    assert "Skills: Python, Spark, PostgreSQL" in text
+    assert "Senior Developer @ Acme Corp" in text
+    assert "Master CS — USTHB (2016)" in text
+    assert "French (native)" in text
+    assert "AWS Solutions Architect" in text
+    assert "Data Lake Migration (2023): Migrated to AWS S3" in text
+
+
+def test_build_synthetic_text_minimal_profile() -> None:
+    profile = CandidateProfile(name="Minimal User")
+    text = build_synthetic_text(profile)
+    assert text == "Name: Minimal User"
+
+
+def test_build_synthetic_text_deterministic() -> None:
+    profile = CandidateProfile(name="Same", skills=["A", "B"])
+    assert build_synthetic_text(profile) == build_synthetic_text(profile)

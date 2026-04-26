@@ -128,6 +128,7 @@ tests/
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | /api/v1/candidates/upload | Upload CV (PDF/DOCX), triggers async pipeline. `external_id` required. |
+| POST | /api/v1/candidates | Create candidate from JSON profile (no file). Synchronous. |
 | GET | /api/v1/candidates/{cv_id} | Get structured candidate profile by internal UUID |
 | GET | /api/v1/candidates/{cv_id}/status | Check processing status by internal UUID |
 | PUT | /api/v1/candidates/{cv_id} | Replace CV file, re-run pipeline (preserves `cv_id`/`external_id`) |
