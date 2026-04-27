@@ -74,16 +74,29 @@ ruff check app/ tests/
 
 **Two correlation keys on `CVProfile`** — understand the distinction before touching upload/search/rank code:
 - `external_id` — caller-supplied business key (e.g. `EMP-001`). NOT NULL, unique per `(collection_id, external_id)`. This is the authoritative join key echoed on search/rank results. The Hiring Platform uses this to correlate CV layer records with its own DB.
-- `file_hash` — SHA-256 of the file bytes. Used only for deduplication (`DUPLICATE_FILE` 409). Never use as a document id.
+- `file_hash` — SHA-256 of the file bytes (or, for JSON-create, the SHA-256 of `build_synthetic_text(profile)`). Used only for deduplication (`DUPLICATE_FILE` 409). Never use as a document id.
 - `search_doc_external_id` — legacy column; equals `external_id` for all rows created after migration `0003`. Kept for backward-compatibility with pre-migration rows.
 
 **Semantic Search document id** = `cv.external_id`. The `submit_to_search` task raises `RuntimeError` if `external_id` is None; never fall back to `file_hash`.
 
-**Indexing content** = raw CV text (`payload["raw_text"]`), not a formatted profile projection. `build_search_document` in `app/services/indexing_bridge.py` receives `raw_text` explicitly.
+**Indexing content** = raw CV text (`payload["raw_text"]`), not a formatted profile projection. `build_search_document` in `app/services/indexing_bridge.py` receives `raw_text` explicitly. For the JSON-create path (`POST /candidates`), `build_synthetic_text(profile)` produces the text used for both `raw_text` and the Search document `content`.
+
+**`CandidateProfile` fields** (`app/models/schemas.py`):
+- Identity/contact: `name` (required), `email`, `phone`, `location`, `current_title`, `summary`, `linkedin_url`, `github_url`, `portfolio_url`
+- Lists: `skills`, `experience`, `education`, `languages`, `certifications`, `achievements`, plus `total_experience_years`
+- `achievements: list[AchievementEntry]` — discrete deliverables (e.g. "Migration Data Lake vers AWS"); intentionally distinct from `experience` (job tenure).
+
+**Patch / create-from-JSON shapes**:
+- `CandidateCreateRequest` — body of `POST /candidates`; `extra="forbid"`.
+- `CandidateProfilePatch` — body of `PATCH /candidates/{cv_id}` (and external_id variant). All fields optional; list fields are replaced wholesale when provided. `extra="forbid"` so typos surface as 422.
+
+**`extraction_method` values**: `text_extraction` | `ocr_easyocr` | `json_input` (last is set only by the JSON-create path).
+
+**CV statuses** (`app/models/schemas.py:CVStatusEnum`): `pending`, `extracting`, `ocr_processing`, `entity_extraction`, `indexing`, `ready`, `failed`, `index_failed`. Profile API responses narrow the OCR/entity-extraction internal states down to `extracting`.
 
 **Two-phase ranking** (`app/services/ranking_engine.py`):
 1. Recall — semantic search via Search API (`hybrid` mode, `rerank=True`) to get top-N candidates.
-2. Scoring — parallel LLM calls (Gemini, concurrency controlled by `ranking_llm_concurrency` setting) produce per-component scores. Composite = weighted sum of `semantic` (0.30) + `skills` (0.25) + `experience` (0.25) + `education` (0.10) + `language` (0.10). Weights are overridable per-request via `RankingRequest.weights`.
+2. Scoring — parallel LLM calls (Gemini, concurrency controlled by `ranking_llm_concurrency` setting) produce per-component scores. The LLM context includes `min_experience_years` plus `experience_details`, `education_details`, and `achievements_details`. Composite = weighted sum of `semantic` (0.30) + `skills` (0.25) + `experience` (0.25) + `education` (0.10) + `language` (0.10). Weights are overridable per-request via `RankingRequest.weights` (null fields fall back to defaults).
 
 ## Project structure
 
@@ -103,8 +116,8 @@ app/
   services/
     document_processor.py   # PDF/DOCX text extraction
     ocr_service.py          # EasyOCR pipeline (fra+eng)
-    entity_extractor.py     # Regex + LLM extraction + phone normalization
-    indexing_bridge.py      # CandidateProfile + raw_text → Search API document
+    entity_extractor.py     # Regex + LLM extraction + phone normalization + Gemini-output coercion
+    indexing_bridge.py      # build_synthetic_text + build_search_document
     ranking_engine.py       # Semantic recall + LLM ranking
     answer_scorer.py        # Similarity + LLM grading
     search_client.py        # HTTP client for Semantic Search API

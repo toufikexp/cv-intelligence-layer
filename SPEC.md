@@ -34,18 +34,22 @@ Process page-by-page: some pages may be text-based while others are scanned.
 # International: already has + prefix → keep as-is
 ```
 
+Applied in `app/services/entity_extractor.py:_normalize_phone()` to both
+regex-extracted and LLM-returned phone numbers.
+
 ### Search document construction
 
-The indexing bridge builds content for embedding:
-```
-{current_title} | {name}
-Skills: {skills_comma_separated}
-Experience: {role1 at company1}, {role2 at company2}, ...
-Education: {degree from institution}
-{summary}
-```
+The indexing bridge sends the raw CV text as the document `content` (it's
+what semantic recall actually matches against — a short formatted projection
+would lose recall). For the JSON-create path (`POST /candidates`),
+`build_synthetic_text(profile)` produces a deterministic plain-text
+representation of the structured profile (Name / Title / Location / Email /
+Phone / Summary / Skills / Experience / Education / Languages /
+Certifications / Achievements) and that synthetic text becomes both
+`raw_text` and the Search document `content`.
 
-Metadata mapping for faceted search:
+Metadata mapping for faceted search (built from the structured profile):
+
 ```json
 {
   "skills": ["Python", "SQL"],
@@ -55,6 +59,8 @@ Metadata mapping for faceted search:
   "education_level": "master"
 }
 ```
+
+`null` metadata values are stripped before submission to Semantic Search.
 
 ### Webhook flow (async ingestion + callbacks)
 
@@ -118,6 +124,46 @@ See `schemas/openapi_cv_layer.yaml` for the complete OpenAPI spec.
 
 Same pattern as Semantic Search API: `Authorization: Bearer <api_key>` header.
 
+### CandidateProfile schema
+
+The structured profile stored in `cv_profiles.profile_data` and returned by
+the `GET`/`POST`/`PATCH` candidate endpoints. Fields:
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| name | string | yes | Pydantic-required; entity extractor falls back to `"Unknown"` if Gemini returns nothing parseable |
+| email | string \| null | no | RFC-5322; deduplication key per collection |
+| phone | string \| null | no | Normalized to E.164-ish for FR/DZ; otherwise kept as-is |
+| location | string \| null | no | |
+| current_title | string \| null | no | |
+| summary | string \| null | no | |
+| linkedin_url, github_url, portfolio_url | URL \| null | no | |
+| skills | string[] | no | flat list (Gemini's dict-of-lists is flattened) |
+| experience | ExperienceEntry[] | no | `{company, role, start_date?, end_date?, description?, location?}` |
+| education | EducationEntry[] | no | `{institution, degree?, field?, year?}` |
+| languages | LanguageEntry[] | no | `{language, level}`, level ∈ `native | fluent | advanced | intermediate | beginner` |
+| certifications | string[] | no | |
+| achievements | AchievementEntry[] | no | `{title, year?, description?}` — distinct projects/realizations, not job tenure |
+| total_experience_years | float \| null | no | |
+
+**JSON-create vs upload:**
+- `POST /candidates/upload` (multipart) → async pipeline; row born `pending`,
+  becomes `ready` only after the ingestion webhook fires.
+- `POST /candidates` (JSON body, `CandidateCreateRequest`) → synchronous;
+  row is born `ready` with `extraction_method="json_input"`. The handler
+  derives `raw_text = build_synthetic_text(profile)`,
+  `file_hash = sha256(raw_text)`, detects language, and ingests into Search
+  in the same request. No HP webhook fires for this path.
+
+**PATCH semantics** (`CandidateProfilePatch`):
+- All fields optional; `extra="forbid"` so unknown fields → 422.
+- Scalars are replaced when set; list fields are replaced wholesale.
+- The merged dict is re-validated through the strict `CandidateProfile` so
+  bad patches surface at the API boundary, not at write time.
+- Re-indexes synchronously into Semantic Search after the DB update; on
+  Search failure the CV is marked `index_failed` and the handler returns
+  `502 UPSTREAM_SEARCH_ERROR`.
+
 ## 3. Database Schema
 
 ### Primary table: cv_profiles
@@ -133,21 +179,21 @@ Same pattern as Semantic Search API: `Authorization: Bearer <api_key>` header.
 | profile_data | JSONB | GIN index | Full CandidateProfile |
 | raw_text | TEXT | No | Preserved for reprocessing |
 | language | VARCHAR(5) | Yes | fr, en, mixed |
-| extraction_method | VARCHAR(20) | No | text_extraction, ocr_easyocr |
+| extraction_method | VARCHAR(20) | No | text_extraction, ocr_easyocr, json_input |
 | search_doc_external_id | VARCHAR(255) | Yes | Reference to search platform doc |
 | search_ingest_job_id | VARCHAR(64) | Yes | Semantic Search ingest job_id for webhook correlation |
-| file_hash | VARCHAR(64) | Yes (unique/collection) | SHA-256 for dedup |
-| status | VARCHAR(20) | Yes | pending/extracting/indexing/ready/failed/index_failed |
+| file_hash | VARCHAR(64) | Yes (unique/collection) | SHA-256 of file bytes (or of synthetic text for JSON-create) |
+| status | VARCHAR(20) | Yes | pending/extracting/ocr_processing/entity_extraction/indexing/ready/failed/index_failed |
 | callback_url | VARCHAR(2048) | No | Hiring Platform webhook URL for completion notification |
 | created_at | TIMESTAMPTZ | Yes | Upload timestamp |
 | updated_at | TIMESTAMPTZ | No | Last modification |
 
 ### Supporting tables
 
-- **cv_jobs**: Job descriptions for ranking (job_id, collection_id, description, required_skills, created_at)
-- **cv_ranking_results**: Cached ranking results (job_id, cv_id, composite_score, llm_reasoning, ranked_at)
-- **cv_answer_sessions**: Test scoring sessions (session_id, cv_id, scores, total_score)
-- **cv_processing_jobs**: Async job tracking (job_id, cv_id, stage, status, error_message, timestamps)
+- **cv_jobs**: Job descriptions for ranking (job_id, collection_id, description, required_skills, preferred_skills, created_at)
+- **cv_ranking_results**: Cached ranking results table (job_id, cv_id, composite_score, llm_reasoning, ranked_at) — schema exists; the engine does not currently persist results
+- **cv_answer_sessions**: Test scoring sessions (session_id, cv_id, scores, total_score, max_score)
+- **cv_processing_jobs**: Async job tracking (job_id, cv_id, stage, status, error_message, progress_pct, timestamps incl. completed_at)
 
 ## 4. Ranking Engine
 
@@ -159,10 +205,15 @@ Same pattern as Semantic Search API: `Authorization: Bearer <api_key>` header.
 - Fast: < 500ms
 
 **Phase 2 — LLM Evaluation:**
-- For each candidate, send JD + structured profile to LLM (Gemini default)
-- Multi-criteria scoring: skills (0.25), experience (0.25), education (0.10), language (0.10)
-- Parallelized with `asyncio.Semaphore` (default concurrency: 5)
-- Prompt template: `prompts/cv_ranking.md`
+- For each candidate, send the JD plus the structured profile to the LLM (Gemini default).
+- Prompt context includes `min_experience_years`, `required_languages`,
+  `education_requirements`, `experience_details`, `education_details`, and
+  `achievements_details` (so distinct deliverables count alongside job tenure).
+- Multi-criteria scoring: skills (0.25), experience (0.25), education (0.10), language (0.10).
+- Parallelized with `asyncio.Semaphore(RANKING_LLM_CONCURRENCY)` (default 5).
+- Prompt template: `prompts/cv_ranking.md`.
+- Hits whose CV row has `profile_data is None` are dropped from the response —
+  there's nothing to score against.
 
 **Composite score:**
 ```python
