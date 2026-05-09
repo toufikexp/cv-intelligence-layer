@@ -102,6 +102,7 @@ See `schemas/openapi_cv_layer.yaml` for the complete OpenAPI spec.
 | Method | Endpoint | Description | Async |
 |--------|----------|-------------|-------|
 | POST | /api/v1/candidates/upload | Upload CV file, triggers pipeline | Yes - returns job_id |
+| POST | /api/v1/candidates/extract | Stateless preview: extract profile from a file, no persist | No - synchronous |
 | POST | /api/v1/candidates | Create candidate from JSON (no file) | No - synchronous |
 | GET | /api/v1/candidates/{cv_id} | Get structured candidate profile | No |
 | GET | /api/v1/candidates/{cv_id}/status | Check processing status | No |

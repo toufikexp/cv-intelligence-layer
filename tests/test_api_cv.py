@@ -17,10 +17,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException, Response
 
-from app.api.cv import _apply_profile_patch, _replace_cv_file, create_cv_from_json
+from app.api.cv import (
+    _apply_profile_patch,
+    _replace_cv_file,
+    create_cv_from_json,
+    extract_cv,
+)
 from app.models.database import CVProcessingJob, CVProfile
 from app.models.schemas import CandidateCreateRequest, CandidateProfile, CandidateProfilePatch
 from app.services.cv_service import CVService
+from app.services.document_processor import ExtractedText
 from app.services.indexing_bridge import build_synthetic_text
 
 
@@ -543,3 +549,178 @@ async def test_create_cv_from_json_rejects_unknown_fields() -> None:
             profile=CandidateProfile(name="X"),
             bogus_field="should fail",  # type: ignore[call-arg]
         )
+
+
+# ---------------------------------------------------------------------------
+# extract_cv — POST /candidates/extract (stateless preview)
+# ---------------------------------------------------------------------------
+
+
+def _fake_upload(content_type: str = "application/pdf", filename: str = "cv.pdf") -> MagicMock:
+    upload = MagicMock()
+    upload.content_type = content_type
+    upload.filename = filename
+    return upload
+
+
+def _extracted_profile() -> CandidateProfile:
+    return CandidateProfile(
+        name="Amina Bensaid",
+        email="amina@example.com",
+        skills=["Python", "Spark"],
+    )
+
+
+@pytest.mark.asyncio
+async def test_extract_cv_happy_path_pdf() -> None:
+    mock_path = MagicMock(spec=Path)
+    profile = _extracted_profile()
+
+    fake_processor = MagicMock()
+    fake_processor.extract = AsyncMock(
+        return_value=ExtractedText(
+            text="Raw text from PDF.",
+            method="text_extraction",
+            needs_ocr=False,
+        )
+    )
+    fake_extractor = MagicMock()
+    fake_extractor.extract = AsyncMock(return_value=profile)
+
+    with (
+        patch(
+            "app.api.cv.validate_and_persist_upload",
+            AsyncMock(return_value=(mock_path, "filehash123")),
+        ),
+        patch("app.api.cv.DocumentProcessor", return_value=fake_processor),
+        patch("app.api.cv.detect_language", AsyncMock(return_value="fr")),
+        patch("app.api.cv.get_llm_client", return_value=MagicMock()),
+        patch("app.api.cv.EntityExtractor", return_value=fake_extractor),
+        patch("app.api.cv.ocr_pdf_pages") as ocr_mock,
+    ):
+        result = await extract_cv(file=_fake_upload(), _="test-key")
+
+    assert result.profile.name == "Amina Bensaid"
+    assert result.language == "fr"
+    assert result.extraction_method == "text_extraction"
+    assert result.file_hash == "filehash123"
+    assert result.raw_text == "Raw text from PDF."
+    # OCR branch was not taken.
+    ocr_mock.assert_not_called()
+    # Entity extractor was called with the non-OCR notes.
+    fake_extractor.extract.assert_awaited_once()
+    notes = fake_extractor.extract.call_args.kwargs["extraction_notes"]
+    assert "OCR" not in notes
+    # Stateless: temp file deleted.
+    mock_path.unlink.assert_called_once_with(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_extract_cv_invalid_mime_returns_400() -> None:
+    with patch(
+        "app.api.cv.validate_and_persist_upload",
+        AsyncMock(
+            side_effect=HTTPException(
+                status_code=400,
+                detail={"detail": "Invalid file type", "code": "INVALID_FILE_TYPE"},
+            )
+        ),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            await extract_cv(file=_fake_upload(content_type="image/png"), _="test-key")
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["code"] == "INVALID_FILE_TYPE"
+
+
+@pytest.mark.asyncio
+async def test_extract_cv_file_too_large_returns_400() -> None:
+    with patch(
+        "app.api.cv.validate_and_persist_upload",
+        AsyncMock(
+            side_effect=HTTPException(
+                status_code=400,
+                detail={"detail": "File too large", "code": "FILE_TOO_LARGE"},
+            )
+        ),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            await extract_cv(file=_fake_upload(), _="test-key")
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["code"] == "FILE_TOO_LARGE"
+
+
+@pytest.mark.asyncio
+async def test_extract_cv_llm_failure_returns_502_and_cleans_up() -> None:
+    mock_path = MagicMock(spec=Path)
+
+    fake_processor = MagicMock()
+    fake_processor.extract = AsyncMock(
+        return_value=ExtractedText(
+            text="Raw text.",
+            method="text_extraction",
+            needs_ocr=False,
+        )
+    )
+    fake_extractor = MagicMock()
+    fake_extractor.extract = AsyncMock(side_effect=RuntimeError("Gemini empty response"))
+
+    with (
+        patch(
+            "app.api.cv.validate_and_persist_upload",
+            AsyncMock(return_value=(mock_path, "h")),
+        ),
+        patch("app.api.cv.DocumentProcessor", return_value=fake_processor),
+        patch("app.api.cv.detect_language", AsyncMock(return_value="fr")),
+        patch("app.api.cv.get_llm_client", return_value=MagicMock()),
+        patch("app.api.cv.EntityExtractor", return_value=fake_extractor),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            await extract_cv(file=_fake_upload(), _="test-key")
+
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.detail["code"] == "UPSTREAM_LLM_ERROR"
+    # finally block ran: temp file cleaned up even on LLM failure.
+    mock_path.unlink.assert_called_once_with(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_extract_cv_ocr_branch_invokes_ocr() -> None:
+    mock_path = MagicMock(spec=Path)
+    profile = _extracted_profile()
+
+    fake_processor = MagicMock()
+    fake_processor.extract = AsyncMock(
+        return_value=ExtractedText(
+            text="",  # sparse — triggers OCR
+            method="text_extraction",
+            needs_ocr=True,
+        )
+    )
+    fake_extractor = MagicMock()
+    fake_extractor.extract = AsyncMock(return_value=profile)
+
+    with (
+        patch(
+            "app.api.cv.validate_and_persist_upload",
+            AsyncMock(return_value=(mock_path, "h")),
+        ),
+        patch("app.api.cv.DocumentProcessor", return_value=fake_processor),
+        patch("app.api.cv.detect_language", AsyncMock(return_value="fr")),
+        patch("app.api.cv.get_llm_client", return_value=MagicMock()),
+        patch("app.api.cv.EntityExtractor", return_value=fake_extractor),
+        patch(
+            "app.api.cv.ocr_pdf_pages",
+            return_value=("OCR recovered text", "ocr_easyocr"),
+        ) as ocr_mock,
+    ):
+        result = await extract_cv(file=_fake_upload(), _="test-key")
+
+    ocr_mock.assert_called_once()
+    assert result.extraction_method == "ocr_easyocr"
+    assert result.raw_text == "OCR recovered text"
+    # Entity extractor should have been told the text came from OCR.
+    notes = fake_extractor.extract.call_args.kwargs["extraction_notes"]
+    assert "OCR" in notes
+    mock_path.unlink.assert_called_once_with(missing_ok=True)
