@@ -98,6 +98,62 @@ paths:
               schema:
                 $ref: '#/components/schemas/CVDuplicateResponse'
 
+  /api/v1/candidates/extract:
+    post:
+      tags: [Candidates]
+      summary: Extract CV profile (stateless preview)
+      description: |
+        Run text extraction, OCR (if the document is scanned), language
+        detection, and LLM entity extraction synchronously on an uploaded
+        CV. Returns the parsed `CandidateProfile` **without persisting
+        anything** — no database row, no Semantic Search document.
+
+        Intended for the preview-edit-confirm workflow: the Hiring Platform
+        displays the extracted profile, the user corrects any mis-extracted
+        fields, then confirms by calling `POST /api/v1/candidates`
+        (JSON-create) with the (possibly edited) profile.
+
+        Typical latency: 5–10 seconds for text-based PDF/DOCX. OCR adds
+        10–30 seconds per scanned page.
+      operationId: extract_cv
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: CV file (PDF or DOCX, max 20MB)
+      responses:
+        "200":
+          description: Extracted profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVExtractionResponse'
+        "400":
+          description: |
+            Invalid file type (`INVALID_FILE_TYPE`) or file too large
+            (`FILE_TOO_LARGE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "502":
+          description: |
+            LLM entity extraction failed (`UPSTREAM_LLM_ERROR`). Retry is
+            safe — nothing was persisted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/candidates:
     post:
       tags: [Candidates]
@@ -852,6 +908,35 @@ components:
         completed_at:
           type: string
           format: date-time
+
+    CVExtractionResponse:
+      type: object
+      description: |
+        Stateless extraction result returned by `POST /api/v1/candidates/extract`.
+        Nothing is written to the database and nothing is indexed in Semantic
+        Search — the caller is expected to follow up with
+        `POST /api/v1/candidates` (JSON-create) once the user confirms.
+      required: [profile, extraction_method, file_hash, raw_text]
+      properties:
+        profile:
+          $ref: '#/components/schemas/CandidateProfile'
+        language:
+          type: string
+          description: Detected language code (`fr`, `en`, or `mixed`).
+        extraction_method:
+          type: string
+          enum: [text_extraction, ocr_easyocr]
+        file_hash:
+          type: string
+          description: |
+            SHA-256 of the uploaded file bytes. Useful for HP-side
+            deduplication pre-checks before calling the JSON-create
+            endpoint.
+        raw_text:
+          type: string
+          description: |
+            Full extracted text (post-OCR if applicable). Optional for
+            display in the preview UI.
 
     CandidateCreateRequest:
       type: object

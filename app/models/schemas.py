@@ -149,6 +149,22 @@ class CVStatusResponse(BaseModel):
     completed_at: datetime | None = None
 
 
+class CVExtractionResponse(BaseModel):
+    """Stateless extraction result for the preview-edit-confirm flow.
+
+    Returned by ``POST /api/v1/candidates/extract``. No DB row is written
+    and no Semantic Search document is indexed — the caller is expected to
+    follow up with ``POST /api/v1/candidates`` (JSON-create) once the user
+    confirms the extracted profile.
+    """
+
+    profile: CandidateProfile
+    language: str | None = None
+    extraction_method: str
+    file_hash: str
+    raw_text: str
+
+
 class CVSearchRequest(BaseModel):
     collection_id: uuid.UUID
     query: str = Field(min_length=1)

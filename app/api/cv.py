@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import uuid
 from typing import Literal
@@ -8,11 +9,13 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, Upl
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_api_key
+from app.config import get_settings
 from app.models.database import CVProcessingJob, CVProfile, get_db
 from app.models.schemas import (
     CandidateCreateRequest,
     CandidateProfile,
     CandidateProfilePatch,
+    CVExtractionResponse,
     CVProfileResponse,
     CVSearchRequest,
     CVSearchResponse,
@@ -22,7 +25,11 @@ from app.models.schemas import (
 )
 from app.services.cv_search import get_cv_search_service
 from app.services.cv_service import CVService, get_cv_service
+from app.services.document_processor import DocumentProcessor
+from app.services.entity_extractor import EntityExtractor
 from app.services.indexing_bridge import build_search_document, build_synthetic_text
+from app.services.llm_client import get_llm_client
+from app.services.ocr_service import ocr_pdf_pages
 from app.services.search_client import get_ingest_search_client, get_search_client
 from app.tasks.ingestion import start_cv_ingestion
 from app.utils.file_validation import validate_and_persist_upload
@@ -302,6 +309,79 @@ async def upload_cv(
         mime=file.content_type or "",
     )
     return CVUploadResponse(cv_id=cv.cv_id, job_id=job.job_id, status="pending", file_hash=file_hash)
+
+
+@router.post("/candidates/extract", response_model=CVExtractionResponse)
+async def extract_cv(
+    file: UploadFile = File(...),
+    _: str = Depends(get_api_key),
+) -> CVExtractionResponse:
+    """Stateless CV extraction for the preview-edit-confirm flow.
+
+    Runs validation, text extraction, OCR (if needed), language detection,
+    and entity extraction synchronously. Persists nothing — no DB row, no
+    Semantic Search document. The Hiring Platform shows the result, the
+    user edits, and on confirm calls ``POST /api/v1/candidates`` with the
+    (possibly edited) profile.
+    """
+    path, file_hash = await validate_and_persist_upload(file)
+    mime = file.content_type or ""
+
+    try:
+        processor = DocumentProcessor()
+        extracted = await processor.extract(path, mime)
+        raw_text = extracted.text
+        extraction_method = extracted.method
+
+        if extracted.needs_ocr and mime == "application/pdf":
+            settings = get_settings()
+            # ocr_pdf_pages is sync + CPU-bound — offload from the event loop.
+            text, method = await asyncio.to_thread(
+                ocr_pdf_pages, path, dpi=settings.ocr_dpi, min_chars=50
+            )
+            raw_text = text
+            extraction_method = method
+
+        language = await detect_language(raw_text)
+
+        # Same notes string the Celery extract_entities task passes, so the
+        # LLM prompt behavior is identical between the async pipeline and
+        # this stateless endpoint.
+        extraction_notes = (
+            "Text extracted via OCR — may contain artifacts"
+            if "ocr" in extraction_method
+            else "Clean text extraction from document"
+        )
+        try:
+            llm = get_llm_client()
+            extractor = EntityExtractor(llm)
+            profile = await extractor.extract(
+                cv_text=raw_text,
+                detected_language=language,
+                extraction_notes=extraction_notes,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "detail": f"LLM entity extraction failed: {exc}",
+                    "code": "UPSTREAM_LLM_ERROR",
+                },
+            ) from exc
+
+        return CVExtractionResponse(
+            profile=profile,
+            language=language,
+            extraction_method=extraction_method,
+            file_hash=file_hash,
+            raw_text=raw_text,
+        )
+    finally:
+        # Stateless endpoint — never keep the temp file around.
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 @router.post("/candidates", response_model=CVProfileResponse)
