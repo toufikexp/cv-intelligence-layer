@@ -31,7 +31,7 @@ class CVSearchService:
             limit=req.limit,
             offset=req.offset,
             facets=req.facets,
-            mode="hybrid",
+            mode="semantic",
             rerank=True,
         )
         took_ms = int((time.perf_counter() - t0) * 1000)
