@@ -343,12 +343,12 @@ async def test_mark_index_failed_sets_status_and_commits() -> None:
 
 
 # ---------------------------------------------------------------------------
-# create_ready_cv (POST /candidates JSON-create)
+# create_cv_for_indexing (POST /candidates JSON-create)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_create_ready_cv_success() -> None:
+async def test_create_cv_for_indexing_success() -> None:
     mock_db = AsyncMock()
     exec_result = MagicMock()
     exec_result.scalar_one_or_none.return_value = None
@@ -361,7 +361,7 @@ async def test_create_ready_cv_success() -> None:
     )
 
     svc = CVService()
-    cv, job = await svc.create_ready_cv(
+    cv, job = await svc.create_cv_for_indexing(
         db=mock_db,
         collection_id=uuid.uuid4(),
         external_id="EMP-100",
@@ -371,7 +371,7 @@ async def test_create_ready_cv_success() -> None:
         language="fr",
     )
 
-    assert cv.status == "ready"
+    assert cv.status == "indexing"
     assert cv.external_id == "EMP-100"
     assert cv.file_hash == "abc123"
     assert cv.extraction_method == "json_input"
@@ -382,17 +382,16 @@ async def test_create_ready_cv_success() -> None:
     assert cv.profile_data["skills"] == ["Python", "Spark"]
     assert cv.search_doc_external_id == "EMP-100"
 
-    assert job.stage == "completed"
-    assert job.status == "completed"
-    assert job.progress_pct == 100
-    assert job.completed_at is not None
+    assert job.stage == "indexing"
+    assert job.status == "submitted"
+    assert job.progress_pct == 90
 
     mock_db.add.assert_called()
     mock_db.commit.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_create_ready_cv_duplicate_external_id_raises_409() -> None:
+async def test_create_cv_for_indexing_duplicate_external_id_raises_409() -> None:
     existing = MagicMock(spec=CVProfile)
     existing.cv_id = uuid.uuid4()
 
@@ -403,7 +402,7 @@ async def test_create_ready_cv_duplicate_external_id_raises_409() -> None:
 
     svc = CVService()
     with pytest.raises(HTTPException) as exc_info:
-        await svc.create_ready_cv(
+        await svc.create_cv_for_indexing(
             db=mock_db,
             collection_id=uuid.uuid4(),
             external_id="EMP-DUPE",
@@ -418,7 +417,7 @@ async def test_create_ready_cv_duplicate_external_id_raises_409() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_ready_cv_duplicate_file_hash_raises_409() -> None:
+async def test_create_cv_for_indexing_duplicate_file_hash_raises_409() -> None:
     existing = MagicMock(spec=CVProfile)
     existing.cv_id = uuid.uuid4()
 
@@ -432,7 +431,7 @@ async def test_create_ready_cv_duplicate_file_hash_raises_409() -> None:
 
     svc = CVService()
     with pytest.raises(HTTPException) as exc_info:
-        await svc.create_ready_cv(
+        await svc.create_cv_for_indexing(
             db=mock_db,
             collection_id=uuid.uuid4(),
             external_id="EMP-NEW",

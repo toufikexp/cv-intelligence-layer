@@ -394,7 +394,7 @@ async def test_create_cv_from_json_happy_path() -> None:
         external_id=req.external_id,
         collection_id=req.collection_id,
         file_hash=expected_hash,
-        status="ready",
+        status="indexing",
         profile_data=req.profile.model_dump(mode="json"),
         raw_text=synthetic,
         language="mixed",
@@ -408,17 +408,18 @@ async def test_create_cv_from_json_happy_path() -> None:
     job = CVProcessingJob(
         job_id=uuid.uuid4(),
         cv_id=cv.cv_id,
-        stage="completed",
-        status="completed",
-        progress_pct=100,
+        stage="indexing",
+        status="submitted",
+        progress_pct=90,
     )
 
     cv_service = MagicMock(spec=CVService)
-    cv_service.create_ready_cv = AsyncMock(return_value=(cv, job))
+    cv_service.create_cv_for_indexing = AsyncMock(return_value=(cv, job))
     cv_service.mark_index_failed = AsyncMock()
 
+    mock_db = AsyncMock()
     mock_client = MagicMock()
-    mock_client.ingest_documents = AsyncMock(return_value={"job_id": "stub"})
+    mock_client.ingest_documents = AsyncMock(return_value={"job_id": "stub-job-id"})
     mock_client.aclose = AsyncMock()
 
     with (
@@ -430,19 +431,20 @@ async def test_create_cv_from_json_happy_path() -> None:
         result = await create_cv_from_json(
             req=req,
             _="test-key",
-            db=AsyncMock(),
+            db=mock_db,
             cv_service=cv_service,
         )
 
     assert result.cv_id == cv.cv_id
     assert result.external_id == req.external_id
-    assert result.status == "ready"
+    assert result.status == "indexing"
+    assert cv.search_ingest_job_id == "stub-job-id"
     assert result.profile is not None
     assert result.profile.name == "Amina Bensaid"
     assert result.profile.skills == ["Python", "Spark"]
 
-    cv_service.create_ready_cv.assert_awaited_once()
-    call_kwargs = cv_service.create_ready_cv.call_args.kwargs
+    cv_service.create_cv_for_indexing.assert_awaited_once()
+    call_kwargs = cv_service.create_cv_for_indexing.call_args.kwargs
     assert call_kwargs["external_id"] == "EMP-NEW"
     assert call_kwargs["file_hash"] == expected_hash
     assert call_kwargs["raw_text"] == synthetic
@@ -467,7 +469,7 @@ async def test_create_cv_from_json_search_failure_marks_index_failed() -> None:
         external_id=req.external_id,
         collection_id=req.collection_id,
         file_hash="h",
-        status="ready",
+        status="indexing",
         profile_data=req.profile.model_dump(mode="json"),
         raw_text=synthetic,
         language="mixed",
@@ -480,13 +482,13 @@ async def test_create_cv_from_json_search_failure_marks_index_failed() -> None:
     job = CVProcessingJob(
         job_id=uuid.uuid4(),
         cv_id=cv.cv_id,
-        stage="completed",
-        status="completed",
-        progress_pct=100,
+        stage="indexing",
+        status="submitted",
+        progress_pct=90,
     )
 
     cv_service = MagicMock(spec=CVService)
-    cv_service.create_ready_cv = AsyncMock(return_value=(cv, job))
+    cv_service.create_cv_for_indexing = AsyncMock(return_value=(cv, job))
     cv_service.mark_index_failed = AsyncMock()
 
     mock_client = MagicMock()
@@ -516,7 +518,7 @@ async def test_create_cv_from_json_duplicate_external_id_raises_409() -> None:
     req = _make_create_request()
 
     cv_service = MagicMock(spec=CVService)
-    cv_service.create_ready_cv = AsyncMock(
+    cv_service.create_cv_for_indexing = AsyncMock(
         side_effect=HTTPException(
             status_code=409,
             detail={"detail": "external_id 'EMP-NEW' already exists", "code": "DUPLICATE_EXTERNAL_ID"},

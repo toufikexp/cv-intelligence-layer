@@ -394,14 +394,16 @@ async def create_cv_from_json(
     """Create a candidate profile from structured JSON (no CV document).
 
     Builds synthetic text from the profile, hashes it for deduplication,
-    detects language, ingests into Semantic Search synchronously, and
-    returns the fully-formed profile with status ``ready``.
+    detects language, submits to Semantic Search for async indexing, and
+    returns the profile with status ``indexing``.  The ingestion webhook
+    flips the status to ``ready`` once embedding completes — same flow as
+    the upload/Celery path.
     """
     synthetic_text = build_synthetic_text(req.profile)
     file_hash = hashlib.sha256(synthetic_text.encode()).hexdigest()
     lang = await detect_language(synthetic_text)
 
-    cv, _job = await cv_service.create_ready_cv(
+    cv, _job = await cv_service.create_cv_for_indexing(
         db=db,
         collection_id=req.collection_id,
         external_id=req.external_id,
@@ -421,7 +423,7 @@ async def create_cv_from_json(
     client = get_ingest_search_client()
     try:
         try:
-            await client.ingest_documents(
+            result = await client.ingest_documents(
                 collection_id=req.collection_id,
                 documents=[
                     {
@@ -443,6 +445,11 @@ async def create_cv_from_json(
             ) from exc
     finally:
         await client.aclose()
+
+    ingest_job_id = result.get("job_id")
+    cv.search_ingest_job_id = str(ingest_job_id) if ingest_job_id else None
+    await db.commit()
+    await db.refresh(cv)
 
     return _cv_to_profile_response(cv)
 
