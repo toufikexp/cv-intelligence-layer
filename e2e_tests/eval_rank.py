@@ -165,6 +165,17 @@ def eval_department(
             "on_dept_mean_rank": round(dept_mean_rank, 2),
             "off_dept_mean_rank": round(offdept_mean_rank, 2),
             "took_ms": took_ms,
+            "candidates": [
+                {
+                    "rank": idx + 1,
+                    "external_id": r.get("external_id", ""),
+                    "on_dept": ext_to_dept.get(r.get("external_id", "")) == dept,
+                    "score": r.get("score"),
+                    "recommendation": r.get("recommendation"),
+                    "reasoning": r.get("reasoning", "")[:200],
+                }
+                for idx, r in enumerate(ranked)
+            ],
         })
 
     mean_precision = total_precision / valid_count if valid_count else 0.0
