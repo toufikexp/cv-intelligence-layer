@@ -78,7 +78,7 @@ class LLMClient:
                 max_output_tokens=1024,
                 temperature=0.2,
                 response_mime_type="application/json",
-                thinking_config=types.ThinkingConfig(thinking_budget=128),
+                thinking_config=types.ThinkingConfig(thinking_budget=256),
             ),
         )
         text = getattr(resp, "text", None) or ""
