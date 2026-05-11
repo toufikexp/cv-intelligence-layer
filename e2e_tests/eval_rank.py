@@ -350,7 +350,7 @@ def save_report(report: dict, mode: str) -> Path:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Rank quality evaluation")
     parser.add_argument("--base-url", default="http://localhost:8001")
-    parser.add_argument("--api-key", default="dev_key_change_me")
+    parser.add_argument("--api-key", required=True, help="API key (Bearer token, e.g. APP_API_KEY)")
     parser.add_argument("--collection-id", required=True)
     parser.add_argument("--mode", choices=["department", "expert"], default="department")
     parser.add_argument("--recall-size", type=int, default=10)
