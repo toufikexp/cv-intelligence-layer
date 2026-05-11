@@ -532,7 +532,11 @@ def main() -> None:
     parser.add_argument("--update-count", type=int, default=30, help="Number of candidates to update")
     parser.add_argument("--search-count", type=int, default=25, help="Number of search queries")
     parser.add_argument("--rank-count", type=int, default=10, help="Number of JDs to rank against")
-    parser.add_argument("--collection-name", default=None, help="Test collection name (auto-generated if omitted)")
+    parser.add_argument("--collection-name", default=None,
+                        help="Name for a new test collection (auto-generated if omitted). Ignored if --collection-id is set.")
+    parser.add_argument("--collection-id", default=None,
+                        help="Use an existing collection (mirrors HR platform flow with predefined collections). "
+                             "Skips collection creation entirely.")
     parser.add_argument("--timeout", type=float, default=120.0, help="HTTP timeout in seconds")
     parser.add_argument("--keep-data", action="store_true", help="Don't delete candidates after test")
     args = parser.parse_args()
@@ -575,16 +579,21 @@ def main() -> None:
             return
         print("✓ API is healthy\n")
 
-        collection_name = args.collection_name or f"e2e-test-{uuid.uuid4().hex[:8]}"
-        print(f"Creating test collection: {collection_name}")
-        coll_res, collection = client.create_collection(collection_name)
-        setup_metrics.results.append(coll_res)
-        if not collection:
-            print(f"✗ Failed to create collection (HTTP {coll_res.status_code}): {coll_res.error}")
-            print("  → Check API logs and Semantic Search service availability.")
-            return
-        collection_id = collection["id"]
-        print(f"✓ Collection created: {collection_id}\n")
+        if args.collection_id:
+            collection_id = args.collection_id
+            print(f"Using existing collection: {collection_id}\n")
+        else:
+            collection_name = args.collection_name or f"e2e-test-{uuid.uuid4().hex[:8]}"
+            print(f"Creating test collection: {collection_name}")
+            coll_res, collection = client.create_collection(collection_name)
+            setup_metrics.results.append(coll_res)
+            if not collection:
+                print(f"✗ Failed to create collection (HTTP {coll_res.status_code}): {coll_res.error}")
+                print("  → The CV layer's SEARCH_API_KEY may lack collection-create permission.")
+                print("  → Pre-create a collection out-of-band and re-run with --collection-id <uuid>.")
+                return
+            collection_id = collection["id"]
+            print(f"✓ Collection created: {collection_id}\n")
 
         if "extract" in test_groups:
             print("━" * 60)
