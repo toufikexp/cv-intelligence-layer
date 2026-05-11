@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     fasttext_model_path: Path = Field(default=Path("/models/lid.176.bin"), alias="FASTTEXT_MODEL_PATH")
 
     ranking_default_recall_size: int = Field(default=30, alias="RANKING_DEFAULT_RECALL_SIZE")
-    ranking_llm_concurrency: int = Field(default=5, alias="RANKING_LLM_CONCURRENCY")
+    ranking_llm_concurrency: int = Field(default=20, alias="RANKING_LLM_CONCURRENCY")
 
     search_webhook_secret: str = Field(default="", alias="SEARCH_WEBHOOK_SECRET")
     app_webhook_secret: str = Field(default="", alias="APP_WEBHOOK_SECRET")
