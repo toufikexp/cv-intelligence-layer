@@ -1,0 +1,155 @@
+{
+  "_description": "Golden set for evaluating search and rank quality. Pre-filled with 5 examples. A recruiter should review and extend with more entries for thorough evaluation.",
+  "_usage": {
+    "search_golden": "Each entry defines a query and the expected candidate external_ids that should appear in results. 'expected_department' enables automated department-level checking.",
+    "rank_golden": "Each entry defines a JD and expert-annotated scores for specific candidates. Used to compare LLM ranking against human judgment."
+  },
+
+  "search_golden": [
+    {
+      "query": "cybersecurity engineer with cloud security and incident response experience",
+      "jd_index": 12,
+      "jd_title": "Cloud Security Engineer",
+      "expected_department": "cybersecurity",
+      "expected_external_ids": ["E2E-0001", "E2E-0006", "E2E-0008"],
+      "notes": "Should retrieve candidates with cloud security, SOC, IDS/IPS skills. E2E-0001 (CISO, Cloud Security) is strongest match."
+    },
+    {
+      "query": "comptable senior avec expérience en ERP et conformité fiscale",
+      "jd_index": 1,
+      "jd_title": "Comptable Senior",
+      "expected_department": "finance",
+      "expected_external_ids": ["E2E-0007", "E2E-0011", "E2E-0023"],
+      "notes": "French-language query for finance roles. E2E-0011 (Senior Accountant, SAP FI/CO, Variance Analysis) is closest to JD requirements."
+    },
+    {
+      "query": "frontend developer with React, TypeScript and CI/CD experience",
+      "jd_index": 9,
+      "jd_title": "Frontend Developer",
+      "expected_department": "software_engineering",
+      "expected_external_ids": ["E2E-0009", "E2E-0032", "E2E-0039"],
+      "notes": "E2E-0039 (Frontend Developer title) is the most direct match. E2E-0009 and E2E-0032 have relevant web dev stacks."
+    },
+    {
+      "query": "SOC analyst with Splunk and SIEM experience for security operations",
+      "jd_index": 25,
+      "jd_title": "SOC Analyst",
+      "expected_department": "cybersecurity",
+      "expected_external_ids": ["E2E-0006", "E2E-0008", "E2E-0001"],
+      "notes": "E2E-0006 (Analyste SOC, Splunk, Incident Response) is the strongest match for this query."
+    },
+    {
+      "query": "sales manager with B2C negotiation and pricing strategy",
+      "jd_index": 0,
+      "jd_title": "Enterprise Sales Executive",
+      "expected_department": "sales",
+      "expected_external_ids": [],
+      "notes": "Fill in after reviewing which sales CVs are in the dataset. Use: python -c \"import json; [print(f'E2E-{i+1:04d}', c['profile']['name'], c['profile']['current_title']) for i,c in enumerate(json.load(open('cvs.json'))) if c['department']=='sales']\""
+    }
+  ],
+
+  "rank_golden": [
+    {
+      "jd_index": 12,
+      "jd_title": "Cloud Security Engineer",
+      "expert_rankings": [
+        {
+          "external_id": "E2E-0001",
+          "expert_scores": {
+            "skills_score": 0.85,
+            "experience_score": 0.9,
+            "education_score": 0.7,
+            "language_score": 1.0,
+            "overall": 85
+          },
+          "expected_rank_position": 1,
+          "notes": "CISO with 14 years, Cloud Security + Forensics + Vuln Assessment. Strong match."
+        },
+        {
+          "external_id": "E2E-0006",
+          "expert_scores": {
+            "skills_score": 0.75,
+            "experience_score": 0.6,
+            "education_score": 0.5,
+            "language_score": 1.0,
+            "overall": 68
+          },
+          "expected_rank_position": 2,
+          "notes": "SOC Analyst with Splunk, Cloud Security. Good but less senior."
+        },
+        {
+          "external_id": "E2E-0008",
+          "expert_scores": {
+            "skills_score": 0.6,
+            "experience_score": 0.5,
+            "education_score": 0.5,
+            "language_score": 1.0,
+            "overall": 55
+          },
+          "expected_rank_position": 3,
+          "notes": "Pentester with IDS/IPS, SIEM. Related but different specialization."
+        }
+      ]
+    },
+    {
+      "jd_index": 1,
+      "jd_title": "Comptable Senior",
+      "expert_rankings": [
+        {
+          "external_id": "E2E-0011",
+          "expert_scores": {
+            "skills_score": 0.8,
+            "experience_score": 0.75,
+            "education_score": 0.7,
+            "language_score": 1.0,
+            "overall": 78
+          },
+          "expected_rank_position": 1,
+          "notes": "Senior Accountant with SAP FI/CO, Variance Analysis. Direct match."
+        },
+        {
+          "external_id": "E2E-0007",
+          "expert_scores": {
+            "skills_score": 0.5,
+            "experience_score": 0.6,
+            "education_score": 0.6,
+            "language_score": 1.0,
+            "overall": 58
+          },
+          "expected_rank_position": 2,
+          "notes": "Treasury Analyst — finance background but treasury focus, not accounting."
+        }
+      ]
+    },
+    {
+      "jd_index": 9,
+      "jd_title": "Frontend Developer",
+      "expert_rankings": [
+        {
+          "external_id": "E2E-0039",
+          "expert_scores": {
+            "skills_score": 0.7,
+            "experience_score": 0.7,
+            "education_score": 0.6,
+            "language_score": 1.0,
+            "overall": 70
+          },
+          "expected_rank_position": 1,
+          "notes": "Frontend Developer title, Docker/AWS/Kubernetes skills."
+        },
+        {
+          "external_id": "E2E-0009",
+          "expert_scores": {
+            "skills_score": 0.6,
+            "experience_score": 0.65,
+            "education_score": 0.6,
+            "language_score": 1.0,
+            "overall": 63
+          },
+          "expected_rank_position": 2,
+          "notes": "Lead Dev with Django/.NET/CI-CD. Backend-leaning but relevant."
+        }
+      ]
+    }
+  ]
+}
