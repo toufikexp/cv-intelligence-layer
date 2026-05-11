@@ -47,7 +47,7 @@ class RankingEngine:
             query=req.job_description,
             limit=recall_size,
             offset=0,
-            mode="hybrid",
+            mode="semantic",
             rerank=True,
         )
 
