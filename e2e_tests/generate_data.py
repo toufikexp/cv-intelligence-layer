@@ -911,6 +911,71 @@ def generate_pdf(cv_data: dict, output_path: Path) -> None:
     pdf.output(str(output_path))
 
 
+def _render_text_to_images(text: str, *, dpi: int = 150) -> list:
+    """Rasterize CV text into one or more page images (PIL).
+
+    Letter-sized pages at the given DPI. Lines that are ALL CAPS and longer
+    than 3 chars render as bold section headers (matching `generate_pdf`).
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    width, height = int(8.5 * dpi), int(11 * dpi)
+    margin = int(0.6 * dpi)
+    font_regular = ImageFont.truetype(FONT_PATH, max(12, int(0.11 * dpi)))
+    font_bold = ImageFont.truetype(FONT_BOLD_PATH, max(15, int(0.14 * dpi)))
+    line_h_reg = max(16, int(0.16 * dpi))
+    line_h_bold = max(22, int(0.21 * dpi))
+    blank_gap = max(6, int(0.06 * dpi))
+
+    pages: list = []
+    img = Image.new("RGB", (width, height), "white")
+    draw = ImageDraw.Draw(img)
+    y = margin
+
+    def _flush_page() -> None:
+        nonlocal img, draw, y
+        pages.append(img)
+        img = Image.new("RGB", (width, height), "white")
+        draw = ImageDraw.Draw(img)
+        y = margin
+
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if not stripped:
+            y += blank_gap
+            if y > height - margin:
+                _flush_page()
+            continue
+        is_header = stripped.isupper() and len(stripped) > 3
+        font = font_bold if is_header else font_regular
+        lh = line_h_bold if is_header else line_h_reg
+        if y + lh > height - margin:
+            _flush_page()
+        draw.text((margin, y), stripped, fill="black", font=font)
+        y += lh
+
+    pages.append(img)
+    return pages
+
+
+def generate_image_pdf(cv_data: dict, output_path: Path, *, dpi: int = 150) -> None:
+    """Generate an image-only PDF (no text layer) to exercise the OCR pipeline.
+
+    The output PDF embeds the CV as rasterized page images, so PyMuPDF native
+    text extraction returns ~empty and the EasyOCR path
+    (`app/services/ocr_service.py`) fires when the file is uploaded.
+    """
+    text = _profile_to_text(cv_data["profile"], cv_data["language"])
+    pages = _render_text_to_images(text, dpi=dpi)
+    pages[0].save(
+        str(output_path),
+        "PDF",
+        save_all=True,
+        append_images=pages[1:],
+        resolution=float(dpi),
+    )
+
+
 # ────────────────────────────────────────────────────────────
 # Main
 # ────────────────────────────────────────────────────────────
@@ -918,7 +983,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate E2E test data")
     parser.add_argument("--cvs", type=int, default=210, help="Number of CVs to generate")
     parser.add_argument("--jds", type=int, default=55, help="Number of JDs to generate")
-    parser.add_argument("--pdfs", type=int, default=50, help="Number of PDFs to generate")
+    parser.add_argument("--pdfs", type=int, default=50, help="Number of text-layer PDFs to generate")
+    parser.add_argument(
+        "--image-pdfs",
+        type=int,
+        default=0,
+        help="Number of image-only PDFs (no text layer) to generate for OCR-path testing",
+    )
+    parser.add_argument(
+        "--image-dpi", type=int, default=150, help="DPI for image-only PDFs (default 150)"
+    )
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     args = parser.parse_args()
 
@@ -978,6 +1052,28 @@ def main() -> None:
 
     pdf_files = list((OUTPUT_DIR / "pdfs").glob("*.pdf"))
     print(f"  → {OUTPUT_DIR / 'pdfs'} ({len(pdf_files)} PDFs)")
+
+    if args.image_pdfs > 0:
+        img_pdf_dir = OUTPUT_DIR / "pdfs"
+        img_count = min(args.image_pdfs, len(all_cvs))
+        # Offset past the text PDFs so image and text PDFs cover different CVs
+        # and end up in the same data/pdfs/ directory.
+        offset = pdf_count
+        if offset + img_count > len(all_cvs):
+            img_count = max(0, len(all_cvs) - offset)
+        print(f"Generating {img_count} image-only PDFs at {args.image_dpi} DPI (OCR path)...")
+        for i in range(img_count):
+            cv = all_cvs[offset + i]
+            safe_name = cv["profile"]["name"].replace(" ", "_").replace("'", "")
+            filename = f"cv_{offset + i + 1:03d}_{safe_name}_ocr.pdf"
+            out_path = img_pdf_dir / filename
+            try:
+                generate_image_pdf(cv, out_path, dpi=args.image_dpi)
+            except Exception as e:
+                print(f"  ⚠ Failed to generate image PDF for {cv['profile']['name']}: {e}")
+                continue
+        img_files = list(img_pdf_dir.glob("*_ocr.pdf"))
+        print(f"  → {img_pdf_dir} ({len(img_files)} image PDFs added)")
 
     stats = {}
     for cv in all_cvs:
