@@ -231,7 +231,7 @@ class CVApiClient:
         return res, data
 
     def rank_candidates(
-        self, collection_id: str, jd: dict, recall_size: int = 30
+        self, collection_id: str, jd: dict, recall_size: int = 10
     ) -> tuple[OpResult, dict | None]:
         body = {
             "collection_id": collection_id,
@@ -432,7 +432,7 @@ def test_rank(
 
     print(f"  Ranking against {len(to_rank)} job descriptions...")
     for i, jd in enumerate(to_rank, 1):
-        res, data = client.rank_candidates(collection_id, jd, recall_size=20)
+        res, data = client.rank_candidates(collection_id, jd, recall_size=10)
         metrics.results.append(res)
         status = "✓" if res.success else "✗"
         n_results = len(data.get("results", [])) if data else 0

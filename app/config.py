@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     ocr_confidence_threshold: float = Field(default=0.6, alias="OCR_CONFIDENCE_THRESHOLD")
     fasttext_model_path: Path = Field(default=Path("/models/lid.176.bin"), alias="FASTTEXT_MODEL_PATH")
 
-    ranking_default_recall_size: int = Field(default=30, alias="RANKING_DEFAULT_RECALL_SIZE")
+    ranking_default_recall_size: int = Field(default=10, alias="RANKING_DEFAULT_RECALL_SIZE")
     ranking_llm_concurrency: int = Field(default=20, alias="RANKING_LLM_CONCURRENCY")
 
     search_webhook_secret: str = Field(default="", alias="SEARCH_WEBHOOK_SECRET")
