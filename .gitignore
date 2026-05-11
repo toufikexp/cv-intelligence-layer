@@ -37,6 +37,10 @@ htmlcov/
 data/uploads/
 uploads/
 
+# E2E test generated data & reports
+e2e_tests/data/
+e2e_tests/reports/
+
 # OS
 .DS_Store
 Thumbs.db
