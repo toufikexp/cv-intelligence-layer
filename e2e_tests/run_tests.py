@@ -202,6 +202,14 @@ class CVApiClient:
         data = resp.json() if resp and res.success else None
         return res, data
 
+    def get_candidate_status(self, cv_id: str) -> str | None:
+        res, resp = self._timed_request(
+            "GET", f"/api/v1/candidates/{cv_id}/status", "get_candidate_status",
+        )
+        if resp and res.success:
+            return resp.json().get("status")
+        return None
+
     def delete_candidate(self, cv_id: str) -> OpResult:
         res, _ = self._timed_request(
             "DELETE", f"/api/v1/candidates/{cv_id}", "delete_candidate",
@@ -324,6 +332,46 @@ def test_update(
             print(f"    [{i}/{len(to_update)}] {status} PATCH {list(patch.keys())} ({res.duration_ms:.0f}ms)")
 
     return metrics
+
+
+def wait_for_indexing(
+    client: CVApiClient,
+    candidates: list[dict],
+    timeout: int = 120,
+    poll_interval: float = 2.0,
+) -> None:
+    """Poll candidate status until all are ready/failed or timeout."""
+    pending = {c["cv_id"]: c.get("external_id", c["cv_id"]) for c in candidates}
+    start = time.perf_counter()
+    ready_count = 0
+    failed_count = 0
+
+    print(f"  Waiting for {len(pending)} candidates to be indexed (timeout {timeout}s)...")
+    while pending and (time.perf_counter() - start) < timeout:
+        done_ids = []
+        for cv_id in list(pending.keys()):
+            status = client.get_candidate_status(cv_id)
+            if status == "ready":
+                ready_count += 1
+                done_ids.append(cv_id)
+            elif status in ("failed", "index_failed"):
+                failed_count += 1
+                done_ids.append(cv_id)
+        for cv_id in done_ids:
+            pending.pop(cv_id)
+        if pending:
+            elapsed = time.perf_counter() - start
+            print(
+                f"    {ready_count} ready, {failed_count} failed, "
+                f"{len(pending)} pending ({elapsed:.0f}s elapsed)"
+            )
+            time.sleep(poll_interval)
+
+    elapsed = time.perf_counter() - start
+    if pending:
+        print(f"  ⚠ Timeout after {elapsed:.0f}s — {len(pending)} still pending")
+    else:
+        print(f"  ✓ All indexed: {ready_count} ready, {failed_count} failed ({elapsed:.0f}s)")
 
 
 def test_search(
@@ -538,6 +586,8 @@ def main() -> None:
                         help="Use an existing collection (mirrors HR platform flow with predefined collections). "
                              "Skips collection creation entirely.")
     parser.add_argument("--timeout", type=float, default=120.0, help="HTTP timeout in seconds")
+    parser.add_argument("--index-timeout", type=int, default=120,
+                        help="Max seconds to wait for Semantic Search indexing before search/rank tests")
     parser.add_argument("--keep-data", action="store_true", help="Don't delete candidates after test")
     args = parser.parse_args()
 
@@ -620,6 +670,14 @@ def main() -> None:
             m = test_update(client, created_candidates, args.update_count)
             all_metrics.append(m)
             print(f"  Done: {m.success_count}/{m.total} updated\n")
+
+        needs_indexed = ("search" in test_groups or "rank" in test_groups)
+        if needs_indexed and created_candidates:
+            print("━" * 60)
+            print("WAIT: Indexing completion (Semantic Search embedding)")
+            print("━" * 60)
+            wait_for_indexing(client, created_candidates, timeout=args.index_timeout)
+            print()
 
         if "search" in test_groups:
             print("━" * 60)

@@ -75,7 +75,7 @@ class CVService:
         await db.refresh(job)
         return cv, job
 
-    async def create_ready_cv(
+    async def create_cv_for_indexing(
         self,
         *,
         db: AsyncSession,
@@ -89,9 +89,10 @@ class CVService:
     ) -> tuple[CVProfile, CVProcessingJob]:
         """Create a CV row from structured JSON (no document upload).
 
-        The row is born ``ready`` — no Celery pipeline. A companion
-        ``CVProcessingJob`` is created with ``status='completed'`` so the
-        ``/status`` endpoint returns consistent data.
+        The row is born ``indexing`` — the caller must submit the document
+        to Semantic Search and save the ``search_ingest_job_id``.  The
+        ingestion webhook flips the status to ``ready`` once embedding
+        completes, exactly like the upload/Celery path.
         """
         existing_ext = await db.execute(
             select(CVProfile).where(
@@ -125,7 +126,7 @@ class CVService:
             collection_id=collection_id,
             file_hash=file_hash,
             callback_url=callback_url,
-            status="ready",
+            status="indexing",
             profile_data=profile.model_dump(mode="json"),
             raw_text=raw_text,
             language=language,
@@ -140,12 +141,11 @@ class CVService:
         job = CVProcessingJob(
             job_id=uuid.uuid4(),
             cv_id=cv.cv_id,
-            stage="completed",
-            status="completed",
-            progress_pct=100,
+            stage="indexing",
+            status="submitted",
+            progress_pct=90,
             created_at=now,
             updated_at=now,
-            completed_at=now,
         )
         db.add(cv)
         db.add(job)
