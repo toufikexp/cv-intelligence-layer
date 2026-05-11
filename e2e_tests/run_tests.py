@@ -148,14 +148,13 @@ class CVApiClient:
         res, resp = self._timed_request("GET", "/health", "health_check")
         return res.success
 
-    def create_collection(self, name: str) -> dict | None:
+    def create_collection(self, name: str) -> tuple[OpResult, dict | None]:
         res, resp = self._timed_request(
             "POST", "/api/v1/collections", "create_collection",
             json={"name": name, "description": f"E2E test collection {name}"},
         )
-        if resp and res.success:
-            return resp.json()
-        return None
+        data = resp.json() if resp and res.success else None
+        return res, data
 
     def list_collections(self) -> dict | None:
         res, resp = self._timed_request("GET", "/api/v1/collections", "list_collections")
@@ -562,26 +561,31 @@ def main() -> None:
 
     client = CVApiClient(args.base_url, args.api_key, timeout=args.timeout)
 
-    print("\nChecking API health...")
-    if not client.health():
-        print("✗ API is not healthy. Check that the server is running.")
-        sys.exit(1)
-    print("✓ API is healthy\n")
-
-    collection_name = args.collection_name or f"e2e-test-{uuid.uuid4().hex[:8]}"
-    print(f"Creating test collection: {collection_name}")
-    collection = client.create_collection(collection_name)
-    if not collection:
-        print("✗ Failed to create collection. Check API logs.")
-        sys.exit(1)
-    collection_id = collection["id"]
-    print(f"✓ Collection created: {collection_id}\n")
-
     all_metrics: list[TestGroupMetrics] = []
     created_candidates: list[dict] = []
+    setup_metrics = TestGroupMetrics(group="setup")
+    all_metrics.append(setup_metrics)
+    collection_id: str | None = None
     total_start = time.perf_counter()
 
     try:
+        print("\nChecking API health...")
+        if not client.health():
+            print("✗ API is not healthy. Check that the server is running.")
+            return
+        print("✓ API is healthy\n")
+
+        collection_name = args.collection_name or f"e2e-test-{uuid.uuid4().hex[:8]}"
+        print(f"Creating test collection: {collection_name}")
+        coll_res, collection = client.create_collection(collection_name)
+        setup_metrics.results.append(coll_res)
+        if not collection:
+            print(f"✗ Failed to create collection (HTTP {coll_res.status_code}): {coll_res.error}")
+            print("  → Check API logs and Semantic Search service availability.")
+            return
+        collection_id = collection["id"]
+        print(f"✓ Collection created: {collection_id}\n")
+
         if "extract" in test_groups:
             print("━" * 60)
             print("TEST GROUP: Extract CV (stateless)")
@@ -636,19 +640,22 @@ def main() -> None:
 
     except KeyboardInterrupt:
         print("\n\nTest interrupted by user.")
+    except Exception as exc:
+        print(f"\n\n✗ Unexpected error: {exc}")
     finally:
         total_duration = time.perf_counter() - total_start
         client.close()
 
-    report = generate_report(all_metrics, args.mode, total_duration, args)
-    print_report(report)
+        non_empty_metrics = [m for m in all_metrics if m.total > 0]
+        report = generate_report(non_empty_metrics, args.mode, total_duration, args)
+        print_report(report)
 
-    REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    report_path = REPORT_DIR / f"e2e_report_{args.mode}_{ts}.json"
-    with open(report_path, "w", encoding="utf-8") as f:
-        json.dump(report, f, ensure_ascii=False, indent=2)
-    print(f"\n  Report saved: {report_path}")
+        REPORT_DIR.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        report_path = REPORT_DIR / f"e2e_report_{args.mode}_{ts}.json"
+        with open(report_path, "w", encoding="utf-8") as f:
+            json.dump(report, f, ensure_ascii=False, indent=2)
+        print(f"\n  Report saved: {report_path}")
 
 
 if __name__ == "__main__":
