@@ -75,9 +75,10 @@ class LLMClient:
             contents=user,
             config=types.GenerateContentConfig(
                 system_instruction=system,
-                max_output_tokens=8192,
+                max_output_tokens=1024,
                 temperature=0.2,
                 response_mime_type="application/json",
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
             ),
         )
         text = getattr(resp, "text", None) or ""
