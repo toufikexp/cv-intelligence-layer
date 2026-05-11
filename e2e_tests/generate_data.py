@@ -1054,22 +1054,26 @@ def main() -> None:
     print(f"  → {OUTPUT_DIR / 'pdfs'} ({len(pdf_files)} PDFs)")
 
     if args.image_pdfs > 0:
-        img_pdf_dir = OUTPUT_DIR / "image_pdfs"
-        img_pdf_dir.mkdir(exist_ok=True)
+        img_pdf_dir = OUTPUT_DIR / "pdfs"
         img_count = min(args.image_pdfs, len(all_cvs))
+        # Offset past the text PDFs so image and text PDFs cover different CVs
+        # and end up in the same data/pdfs/ directory.
+        offset = pdf_count
+        if offset + img_count > len(all_cvs):
+            img_count = max(0, len(all_cvs) - offset)
         print(f"Generating {img_count} image-only PDFs at {args.image_dpi} DPI (OCR path)...")
         for i in range(img_count):
-            cv = all_cvs[i]
+            cv = all_cvs[offset + i]
             safe_name = cv["profile"]["name"].replace(" ", "_").replace("'", "")
-            filename = f"cv_{i+1:03d}_{safe_name}_ocr.pdf"
+            filename = f"cv_{offset + i + 1:03d}_{safe_name}_ocr.pdf"
             out_path = img_pdf_dir / filename
             try:
                 generate_image_pdf(cv, out_path, dpi=args.image_dpi)
             except Exception as e:
                 print(f"  ⚠ Failed to generate image PDF for {cv['profile']['name']}: {e}")
                 continue
-        img_files = list(img_pdf_dir.glob("*.pdf"))
-        print(f"  → {img_pdf_dir} ({len(img_files)} image PDFs)")
+        img_files = list(img_pdf_dir.glob("*_ocr.pdf"))
+        print(f"  → {img_pdf_dir} ({len(img_files)} image PDFs added)")
 
     stats = {}
     for cv in all_cvs:
