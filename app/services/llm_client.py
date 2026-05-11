@@ -75,8 +75,8 @@ class LLMClient:
             contents=user,
             config=types.GenerateContentConfig(
                 system_instruction=system,
-                max_output_tokens=1024,
-                temperature=0.2,
+                max_output_tokens=4096,
+                temperature=0.1,
                 response_mime_type="application/json",
                 thinking_config=types.ThinkingConfig(thinking_budget=256),
             ),
