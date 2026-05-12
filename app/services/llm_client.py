@@ -47,7 +47,9 @@ class LLMClient:
         if self._provider == "gemini":
             self._gemini = genai.Client(api_key=api_key) if api_key else genai.Client()
 
-    async def complete_json(self, *, prompt_key: str, variables: dict[str, Any]) -> dict[str, Any]:
+    async def complete_json(
+        self, *, prompt_key: str, variables: dict[str, Any], thinking_budget: int | None = None
+    ) -> dict[str, Any]:
         bundle = self._prompts[prompt_key]
         # Use literal replacement instead of str.format() because the templates
         # embed JSON schemas with real { and } characters that .format() would
@@ -57,7 +59,9 @@ class LLMClient:
             user = user.replace("{" + key + "}", str(value))
         start = time.perf_counter()
         if self._provider == "gemini":
-            result = await self._complete_gemini_json(system=bundle.system, user=user)
+            result = await self._complete_gemini_json(
+                system=bundle.system, user=user, thinking_budget=thinking_budget
+            )
         elif self._provider == "openai_compatible":
             result = await self._complete_openai_compatible_json(system=bundle.system, user=user)
         else:
@@ -67,19 +71,23 @@ class LLMClient:
         _ = time.perf_counter() - start
         return result
 
-    async def _complete_gemini_json(self, *, system: str, user: str) -> dict[str, Any]:
+    async def _complete_gemini_json(
+        self, *, system: str, user: str, thinking_budget: int | None = None
+    ) -> dict[str, Any]:
         if self._gemini is None:
             raise RuntimeError("Gemini client not initialized")
+        config_kwargs: dict[str, Any] = {
+            "system_instruction": system,
+            "max_output_tokens": 4096,
+            "temperature": 0.1,
+            "response_mime_type": "application/json",
+        }
+        if thinking_budget is not None:
+            config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=thinking_budget)
         resp = await self._gemini.aio.models.generate_content(
             model=self._model,
             contents=user,
-            config=types.GenerateContentConfig(
-                system_instruction=system,
-                max_output_tokens=4096,
-                temperature=0.1,
-                response_mime_type="application/json",
-                thinking_config=types.ThinkingConfig(thinking_budget=256),
-            ),
+            config=types.GenerateContentConfig(**config_kwargs),
         )
         text = getattr(resp, "text", None) or ""
         if not text:

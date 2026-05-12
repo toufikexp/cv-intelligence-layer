@@ -88,6 +88,7 @@ class RankingEngine:
             async with sem:
                 llm_json = await self._llm.complete_json(
                     prompt_key="cv_ranking",
+                    thinking_budget=256,
                     variables={
                         "job_description": req.job_description,
                         "required_skills": req.required_skills or [],
