@@ -59,6 +59,7 @@ class AnswerScorer:
         answer_language = await detect_language(q.candidate_answer)
         llm_json: dict[str, Any] = await self._llm.complete_json(
             prompt_key="answer_scoring",
+            thinking_budget=256,
             variables={
                 "question_text": q.question_text,
                 "question_type": q.question_type,
