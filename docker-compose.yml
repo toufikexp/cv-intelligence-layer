@@ -24,7 +24,10 @@ services:
       - "6380:6379"
 
   cv-api:
-    build: .
+    build:
+      context: .
+      args:
+        CUDA_VERSION: ${CUDA_VERSION:-cu121}
     env_file: .env
     environment:
       TZ: Africa/Algiers
@@ -34,6 +37,7 @@ services:
       REDIS_URL: redis://cv-redis:6379/0
       CELERY_BROKER_URL: redis://cv-redis:6379/0
       UPLOAD_DIR: /data/uploads
+      EASYOCR_GPU: ${EASYOCR_GPU:-true}
     ports:
       - "8001:8001"
     volumes:
@@ -47,9 +51,19 @@ services:
         condition: service_healthy
       cv-redis:
         condition: service_started
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   cv-worker:
-    build: .
+    build:
+      context: .
+      args:
+        CUDA_VERSION: ${CUDA_VERSION:-cu121}
     command: celery -A app.tasks.celery_app worker --loglevel=info -Q default,ocr
     env_file: .env
     environment:
@@ -58,6 +72,7 @@ services:
       REDIS_URL: redis://cv-redis:6379/0
       CELERY_BROKER_URL: redis://cv-redis:6379/0
       UPLOAD_DIR: /data/uploads
+      EASYOCR_GPU: ${EASYOCR_GPU:-true}
     volumes:
       - ./app:/app/app
       - ./prompts:/app/prompts
@@ -69,6 +84,13 @@ services:
         condition: service_healthy
       cv-redis:
         condition: service_started
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
 volumes:
   cv-db-data:
