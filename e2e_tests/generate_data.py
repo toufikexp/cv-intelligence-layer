@@ -513,16 +513,67 @@ ACHIEVEMENT_OBJECTS_FR = [
 ]
 
 SUMMARIES_EN = [
-    "Experienced {title} with {years}+ years of expertise in {field}. Proven track record of delivering high-impact projects in fast-paced environments. Strong problem-solving skills and a passion for continuous learning.",
-    "Results-driven {title} with {years} years of professional experience. Skilled in {skill1}, {skill2}, and {skill3}. Adept at collaborating with cross-functional teams to achieve business objectives.",
-    "Dedicated {title} with a solid background spanning {years} years. Expertise in {field} with a focus on innovation and operational excellence. Committed to driving measurable results.",
-    "Dynamic {title} bringing {years} years of hands-on experience. Specialized in {skill1} and {skill2}, with a strong analytical mindset. Proven ability to lead teams and manage complex projects.",
+    "Experienced {title} with {years}+ years of expertise in {field}. Proven track record of delivering high-impact projects in fast-paced environments. Strong problem-solving skills and a passion for continuous learning. Adept at bridging the gap between technical execution and business strategy, with a history of driving measurable improvements across organizations of all sizes.",
+    "Results-driven {title} with {years} years of professional experience. Skilled in {skill1}, {skill2}, and {skill3}. Adept at collaborating with cross-functional teams to achieve business objectives. Known for taking ownership of complex initiatives from ideation through delivery, consistently exceeding KPIs and stakeholder expectations.",
+    "Dedicated {title} with a solid background spanning {years} years in {field}. Deep expertise in {skill1} and {skill2} with a focus on innovation and operational excellence. Committed to driving measurable results through data-informed decision making and iterative improvement. Experienced in both startup and enterprise environments, comfortable navigating ambiguity and rapid change.",
+    "Dynamic {title} bringing {years} years of hands-on experience. Specialized in {skill1} and {skill2}, with a strong analytical mindset. Proven ability to lead teams of 5-20 professionals and manage complex projects with budgets exceeding $1M. Passionate about mentoring junior talent and fostering a culture of technical excellence and continuous improvement.",
 ]
 SUMMARIES_FR = [
-    "{title} expérimenté(e) avec {years}+ années d'expertise en {field}. Bilan prouvé de livraison de projets à fort impact dans des environnements exigeants. Forte capacité de résolution de problèmes.",
-    "Professionnel(le) orienté(e) résultats avec {years} ans d'expérience en tant que {title}. Compétences en {skill1}, {skill2} et {skill3}. Aptitude à collaborer avec des équipes pluridisciplinaires.",
-    "{title} passionné(e) avec {years} ans d'expérience solide. Expertise en {field} avec un focus sur l'innovation et l'excellence opérationnelle.",
-    "{title} dynamique avec {years} ans d'expérience pratique. Spécialisé(e) en {skill1} et {skill2}, avec un esprit analytique. Capacité prouvée à diriger des équipes.",
+    "{title} expérimenté(e) avec {years}+ années d'expertise en {field}. Bilan prouvé de livraison de projets à fort impact dans des environnements exigeants. Forte capacité de résolution de problèmes et aptitude à combiner vision technique et stratégie business. Reconnu(e) pour sa capacité à fédérer des équipes pluridisciplinaires autour d'objectifs communs.",
+    "Professionnel(le) orienté(e) résultats avec {years} ans d'expérience en tant que {title}. Compétences approfondies en {skill1}, {skill2} et {skill3}. Aptitude à collaborer avec des équipes pluridisciplinaires et à piloter des projets complexes de bout en bout. Expérience significative dans des environnements internationaux et multiculturels.",
+    "{title} passionné(e) avec {years} ans d'expérience solide en {field}. Expertise en {skill1} et {skill2} avec un focus sur l'innovation et l'excellence opérationnelle. Capacité éprouvée à transformer les besoins métier en solutions techniques performantes et évolutives. À l'aise dans des contextes agiles et en forte croissance.",
+    "{title} dynamique avec {years} ans d'expérience pratique. Spécialisé(e) en {skill1} et {skill2}, avec un esprit analytique et une forte orientation résultats. Capacité prouvée à diriger des équipes de 5 à 15 personnes et à gérer des projets avec des budgets dépassant 500K€. Passionné(e) par le mentorat et le développement des compétences.",
+]
+
+# ── Experience bullet templates (interpolated with department skills) ──
+EXP_BULLETS_EN = [
+    "Designed and implemented {skill}-based solutions, improving system performance by {pct}% and reducing operational costs.",
+    "Led a team of {team_size} engineers in building and deploying {skill} applications, delivering ahead of schedule.",
+    "Developed and maintained production {skill} systems processing {volume}+ transactions per day with 99.9% uptime.",
+    "Collaborated with product managers and stakeholders to define technical requirements and deliver {skill} features aligned with business goals.",
+    "Implemented {skill} best practices and coding standards, reducing bug rates by {pct}% across the team.",
+    "Conducted technical interviews, code reviews, and mentored {team_size} junior engineers on {skill} and software design patterns.",
+    "Spearheaded the migration from legacy systems to {skill}, reducing infrastructure costs by {pct}% annually.",
+    "Built automated testing and CI/CD pipelines for {skill} projects, achieving {pct}% code coverage and faster release cycles.",
+    "Authored technical documentation, architecture decision records, and runbooks for {skill}-related systems and processes.",
+    "Drove adoption of {skill} across the organization, presenting at internal tech talks and creating training materials for {team_size}+ engineers.",
+    "Identified and resolved critical performance bottlenecks in {skill} systems, reducing P99 latency from 2s to 200ms.",
+    "Managed vendor relationships and evaluated {skill} tooling options, negotiating contracts saving ${savings}K annually.",
+    "Contributed to open-source {skill} projects and represented the company at industry conferences and meetups.",
+    "Designed data models and API contracts for {skill} services, ensuring backward compatibility and extensibility.",
+    "Partnered with security and compliance teams to implement {skill} security controls meeting SOC 2 and ISO 27001 requirements.",
+]
+EXP_BULLETS_FR = [
+    "Conception et implémentation de solutions basées sur {skill}, améliorant les performances système de {pct}% et réduisant les coûts opérationnels.",
+    "Direction d'une équipe de {team_size} ingénieurs pour le développement et le déploiement d'applications {skill}, livrées en avance sur le planning.",
+    "Développement et maintenance de systèmes {skill} en production traitant {volume}+ transactions par jour avec un SLA de 99,9%.",
+    "Collaboration avec les chefs de produit et les parties prenantes pour définir les spécifications techniques et livrer des fonctionnalités {skill}.",
+    "Mise en place de bonnes pratiques {skill} et de standards de développement, réduisant le taux de bugs de {pct}% au sein de l'équipe.",
+    "Animation d'entretiens techniques, revues de code et mentorat de {team_size} développeurs juniors sur {skill} et les patterns de conception.",
+    "Pilotage de la migration des systèmes legacy vers {skill}, réduisant les coûts d'infrastructure de {pct}% par an.",
+    "Mise en place de pipelines de tests automatisés et CI/CD pour les projets {skill}, atteignant {pct}% de couverture de code.",
+    "Rédaction de documentation technique, dossiers d'architecture et procédures d'exploitation pour les systèmes {skill}.",
+    "Promotion de l'adoption de {skill} dans l'organisation via des présentations internes et la création de supports de formation.",
+    "Identification et résolution de goulots d'étranglement critiques dans les systèmes {skill}, réduisant la latence P99 de 2s à 200ms.",
+    "Gestion des relations fournisseurs et évaluation des solutions {skill}, négociant des contrats permettant une économie de {savings}K€ par an.",
+    "Conception de modèles de données et de contrats d'API pour les services {skill}, garantissant la compatibilité ascendante.",
+    "Collaboration avec les équipes sécurité et conformité pour implémenter les contrôles {skill} conformes SOC 2 et ISO 27001.",
+    "Participation active aux communautés open-source {skill} et représentation de l'entreprise lors de conférences sectorielles.",
+]
+
+ACHIEVEMENT_DESC_EN = [
+    "Delivered on time and under budget, coordinating across {team_size} teams in 3 time zones. Resulted in a {pct}% improvement in operational efficiency.",
+    "Recognized by executive leadership as a top-{pct} initiative of the year. Directly contributed to ${savings}K in annual savings.",
+    "Designed the architecture from scratch, handling {volume}+ daily users within the first quarter post-launch.",
+    "Reduced manual workload by {pct}%, freeing the team to focus on strategic initiatives. Adopted company-wide within 6 months.",
+    "Presented results at company all-hands and external industry conference, receiving positive feedback from {team_size}+ attendees.",
+]
+ACHIEVEMENT_DESC_FR = [
+    "Livré dans les délais et en dessous du budget, en coordonnant {team_size} équipes sur 3 fuseaux horaires. Résultat : amélioration de {pct}% de l'efficacité opérationnelle.",
+    "Reconnu par la direction comme une des top-{pct} initiatives de l'année. Contribution directe à {savings}K€ d'économies annuelles.",
+    "Architecture conçue de zéro, supportant {volume}+ utilisateurs quotidiens dès le premier trimestre post-lancement.",
+    "Réduction de la charge manuelle de {pct}%, permettant à l'équipe de se concentrer sur les initiatives stratégiques. Adopté à l'échelle de l'entreprise en 6 mois.",
+    "Résultats présentés lors du all-hands et d'une conférence sectorielle externe, avec des retours positifs de {team_size}+ participants.",
 ]
 
 EMAIL_DOMAINS = [
@@ -552,14 +603,39 @@ def _rand_name(lang: str) -> tuple[str, str]:
     return first, last
 
 
+def _rand_exp_bullets(lang: str, skills: list[str], count: int) -> str:
+    """Generate count bullet-point descriptions for an experience entry."""
+    templates = EXP_BULLETS_FR if lang in ("fr", "na") else EXP_BULLETS_EN
+    chosen = random.sample(templates, k=min(count, len(templates)))
+    lines = []
+    for tpl in chosen:
+        line = tpl.format(
+            skill=random.choice(skills) if skills else "technology",
+            pct=random.choice([15, 20, 25, 30, 35, 40, 50, 60]),
+            team_size=random.choice([3, 4, 5, 6, 8, 10, 12, 15]),
+            volume=random.choice(["5K", "10K", "50K", "100K", "500K", "1M"]),
+            savings=random.choice([50, 100, 150, 200, 300, 500]),
+        )
+        lines.append(f"• {line}")
+    return "\n".join(lines)
+
+
 def _rand_experience(
     dept_cfg: dict, lang: str, total_years: int
 ) -> list[dict]:
     companies = dept_cfg.get(f"companies_{lang}", dept_cfg.get("companies_en", []))
     titles_key = "titles_fr" if lang in ("fr", "na") else "titles_en"
     titles = dept_cfg.get(titles_key, dept_cfg["titles_en"])
+    skills = dept_cfg.get("skills", [])
 
-    num_jobs = min(random.randint(1, 5), max(1, total_years // 2))
+    if lang == "fr":
+        locations = FR_LOCATIONS
+    elif lang == "na":
+        locations = NA_LOCATIONS
+    else:
+        locations = EN_LOCATIONS
+
+    num_jobs = min(random.randint(2, 6), max(2, total_years // 2))
     current_year = 2025
     entries = []
     remaining = total_years
@@ -567,19 +643,22 @@ def _rand_experience(
     for i in range(num_jobs):
         if remaining <= 0:
             break
-        duration = max(1, min(remaining, random.randint(1, 5)))
+        duration = max(1, min(remaining, random.randint(1, 7)))
         end_year = current_year
         start_year = current_year - duration
         end_str = "present" if i == 0 else f"{end_year}-{random.randint(1,12):02d}"
         start_str = f"{start_year}-{random.randint(1,12):02d}"
+
+        num_bullets = random.randint(3, 5)
+        desc = _rand_exp_bullets(lang, skills, num_bullets)
 
         entries.append({
             "company": random.choice(companies),
             "role": random.choice(titles),
             "start_date": start_str,
             "end_date": end_str,
-            "description": None,
-            "location": None,
+            "description": desc,
+            "location": random.choice(locations),
         })
         current_year = start_year
         remaining -= duration
@@ -637,12 +716,19 @@ def _rand_languages(lang: str) -> list[dict]:
 def _rand_achievements(lang: str, count: int) -> list[dict]:
     verbs = ACHIEVEMENT_VERBS_FR if lang in ("fr", "na") else ACHIEVEMENT_VERBS_EN
     objects = ACHIEVEMENT_OBJECTS_FR if lang in ("fr", "na") else ACHIEVEMENT_OBJECTS_EN
+    desc_templates = ACHIEVEMENT_DESC_FR if lang in ("fr", "na") else ACHIEVEMENT_DESC_EN
     achievements = []
     for _ in range(count):
+        desc = random.choice(desc_templates).format(
+            pct=random.choice([10, 15, 20, 25, 30, 40, 50]),
+            team_size=random.choice([3, 5, 8, 10, 15, 20]),
+            volume=random.choice(["5K", "10K", "50K", "100K"]),
+            savings=random.choice([50, 100, 200, 300, 500]),
+        )
         achievements.append({
             "title": f"{random.choice(verbs)} {random.choice(objects)}",
             "year": str(random.randint(2016, 2025)) if random.random() > 0.3 else None,
-            "description": None,
+            "description": desc,
         })
     return achievements
 
@@ -663,8 +749,8 @@ def generate_cv(dept_name: str, dept_cfg: dict, index: int) -> dict:
     else:
         location = random.choice(EN_LOCATIONS)
 
-    total_years = random.randint(2, 20)
-    skills = random.sample(dept_cfg["skills"], k=min(random.randint(6, 15), len(dept_cfg["skills"])))
+    total_years = random.randint(3, 20)
+    skills = random.sample(dept_cfg["skills"], k=min(random.randint(12, 22), len(dept_cfg["skills"])))
 
     titles_key = "titles_fr" if lang in ("fr", "na") else "titles_en"
     current_title = random.choice(dept_cfg.get(titles_key, dept_cfg["titles_en"]))
@@ -683,8 +769,8 @@ def generate_cv(dept_name: str, dept_cfg: dict, index: int) -> dict:
         skill3=skills[2] if len(skills) > 2 else "communication",
     )
 
-    certs = random.sample(dept_cfg["certs"], k=min(random.randint(0, 3), len(dept_cfg["certs"])))
-    achievements = _rand_achievements(lang, random.randint(0, 4))
+    certs = random.sample(dept_cfg["certs"], k=min(random.randint(1, 4), len(dept_cfg["certs"])))
+    achievements = _rand_achievements(lang, random.randint(2, 5))
 
     profile = {
         "name": name,
@@ -716,14 +802,204 @@ def generate_cv(dept_name: str, dept_cfg: dict, index: int) -> dict:
 # Job description generation
 # ────────────────────────────────────────────────────────────
 JD_TEMPLATES_EN = [
-    "We are looking for a talented {title} to join our {dept} team. The ideal candidate has {min_exp}+ years of experience and strong skills in {skills}. You will be responsible for driving key initiatives and collaborating with cross-functional teams.",
-    "Join our growing {dept} department as a {title}. We need someone with at least {min_exp} years of hands-on experience in {skills}. This role offers the opportunity to work on challenging projects and make a significant impact.",
-    "{title} needed for our {dept} division. Requirements: {min_exp}+ years experience, proficiency in {skills}. The successful candidate will lead projects, mentor junior team members, and contribute to strategic planning.",
+    """About Us:
+We are a fast-growing technology company transforming the {dept} landscape. Our team of 200+ professionals operates across 5 countries, building innovative solutions that serve Fortune 500 clients.
+
+Role Overview:
+We are looking for a talented {title} to join our {dept} team. This is a key role where you will drive technical strategy, build scalable systems, and collaborate with cross-functional teams including product, design, and operations.
+
+Responsibilities:
+- Lead the design, development, and deployment of {dept}-related projects and initiatives
+- Mentor and guide a team of junior and mid-level professionals, conducting code reviews and knowledge-sharing sessions
+- Collaborate with stakeholders to translate business requirements into technical specifications
+- Drive continuous improvement of processes, tools, and methodologies within the team
+- Contribute to architectural decisions and technology roadmap planning
+- Ensure quality through testing, monitoring, and incident response best practices
+
+Requirements:
+- {min_exp}+ years of professional experience in {dept} or a closely related field
+- Strong proficiency in {skills}
+- Excellent problem-solving skills with a track record of delivering complex projects on time
+- Strong communication skills, both written and verbal, with experience presenting to technical and non-technical audiences
+- Bachelor's degree or higher in a relevant field
+
+Nice to Have:
+- Experience working in agile/scrum environments
+- Contributions to open-source projects
+- Relevant industry certifications
+- Experience with distributed systems and microservices architecture
+
+What We Offer:
+- Competitive salary and equity package
+- Flexible remote/hybrid work arrangements
+- Professional development budget of $5,000/year
+- Health, dental, and vision insurance
+- 25 days PTO plus company holidays""",
+
+    """Company Overview:
+Join one of the fastest-growing teams in {dept}. We are a mission-driven company backed by top-tier investors, serving clients across Europe and North America. Our {dept} team is the backbone of our product and we are scaling rapidly.
+
+The Role:
+We need an experienced {title} who can hit the ground running. You will own critical systems end-to-end, from architecture and implementation to monitoring and optimization. You will work closely with product managers, data teams, and external partners.
+
+What You'll Do:
+- Architect and implement solutions in {skills}, ensuring scalability, reliability, and performance
+- Own the full lifecycle of {dept} projects — from requirements gathering to production deployment and iteration
+- Build and maintain documentation, runbooks, and operational procedures for your systems
+- Drive cross-team technical initiatives and represent {dept} in company-wide planning
+- Identify technical debt and propose pragmatic remediation plans
+- Participate in on-call rotations and incident response for production systems
+
+What We're Looking For:
+- {min_exp}+ years of hands-on experience in {dept}
+- Deep expertise in {skills}
+- Demonstrated ability to lead projects and influence technical direction without direct authority
+- Experience working in a high-growth environment where priorities shift and ambiguity is common
+- Strong written communication — you document your designs, share postmortems, and write clear tickets
+
+Bonus Points:
+- Prior experience in a startup or scale-up environment
+- Published articles, talks, or open-source contributions in {dept}
+- Fluency in multiple programming languages or frameworks
+- Experience with international / distributed teams
+
+Benefits:
+- Competitive compensation with annual performance bonuses
+- Remote-first culture with optional co-working spaces
+- Learning & development stipend
+- Annual company retreat and quarterly team events
+- Parental leave and wellness programs""",
+
+    """About the Position:
+Our {dept} division is expanding and we are hiring a {title} to strengthen our team. This role sits at the intersection of technology and business impact — you will build the systems and processes that directly drive revenue and customer satisfaction.
+
+Key Responsibilities:
+- Design, develop, and maintain high-quality {dept} solutions using {skills}
+- Collaborate with product owners to prioritize features and technical improvements
+- Lead technical design reviews and ensure alignment with architectural standards
+- Analyze system performance, identify bottlenecks, and implement optimizations
+- Support hiring efforts by participating in interviews and defining technical assessment criteria
+- Stay current with industry trends and evaluate new tools and frameworks for potential adoption
+
+Required Qualifications:
+- Minimum {min_exp} years of experience in a {dept} role
+- Proficiency in {skills}
+- Solid understanding of software development best practices including testing, CI/CD, and version control
+- Proven ability to work autonomously while keeping stakeholders informed
+- Experience working with relational and/or NoSQL databases in production environments
+
+Preferred Qualifications:
+- Master's degree in a relevant technical discipline
+- Experience with cloud platforms (AWS, GCP, or Azure)
+- Knowledge of DevOps practices and infrastructure-as-code
+- Strong background in data modeling and API design
+
+Compensation & Benefits:
+- Salary range commensurate with experience
+- Annual bonus based on individual and company performance
+- Stock options for all full-time employees
+- Comprehensive healthcare coverage
+- Flexible working hours and generous PTO policy""",
 ]
 JD_TEMPLATES_FR = [
-    "Nous recherchons un(e) {title} talentueux(se) pour rejoindre notre équipe {dept}. Le candidat idéal possède {min_exp}+ années d'expérience et de solides compétences en {skills}. Vous serez responsable de piloter des initiatives clés.",
-    "Rejoignez notre département {dept} en pleine croissance en tant que {title}. Nous recherchons un profil avec au moins {min_exp} ans d'expérience pratique en {skills}. Ce poste offre l'opportunité de travailler sur des projets stimulants.",
-    "Poste de {title} au sein de notre division {dept}. Exigences : {min_exp}+ ans d'expérience, maîtrise de {skills}. Le candidat retenu dirigera des projets et contribuera à la planification stratégique.",
+    """À Propos de Nous :
+Nous sommes une entreprise technologique en forte croissance qui transforme le domaine {dept}. Notre équipe de 200+ professionnels opère dans 5 pays, construisant des solutions innovantes pour des clients du CAC 40 et du Fortune 500.
+
+Description du Poste :
+Nous recherchons un(e) {title} talentueux(se) pour rejoindre notre équipe {dept}. Il s'agit d'un rôle clé où vous piloterez la stratégie technique, construirez des systèmes scalables et collaborerez avec des équipes transverses incluant le produit, le design et les opérations.
+
+Responsabilités :
+- Piloter la conception, le développement et le déploiement de projets liés au domaine {dept}
+- Encadrer et guider une équipe de professionnels juniors et confirmés, mener des revues de code et des sessions de partage de connaissances
+- Collaborer avec les parties prenantes pour traduire les besoins métier en spécifications techniques
+- Améliorer en continu les processus, outils et méthodologies de l'équipe
+- Contribuer aux décisions architecturales et à la planification de la feuille de route technologique
+- Garantir la qualité via les tests, le monitoring et les bonnes pratiques de gestion des incidents
+
+Profil Recherché :
+- {min_exp}+ années d'expérience professionnelle en {dept} ou dans un domaine étroitement lié
+- Maîtrise solide de {skills}
+- Excellentes capacités de résolution de problèmes avec un historique de livraison de projets complexes dans les délais
+- Excellente communication écrite et orale, avec expérience de présentation à des audiences techniques et non-techniques
+- Diplôme Bac+5 ou équivalent dans un domaine pertinent
+
+Atouts Appréciés :
+- Expérience en environnement agile/scrum
+- Contributions à des projets open-source
+- Certifications professionnelles pertinentes
+- Expérience avec les systèmes distribués et l'architecture microservices
+
+Ce Que Nous Offrons :
+- Package salarial compétitif avec participation au capital
+- Télétravail flexible / mode hybride
+- Budget formation de 5 000€/an
+- Mutuelle et prévoyance complètes
+- 25 jours de congés + RTT""",
+
+    """Présentation de l'Entreprise :
+Rejoignez l'une des équipes les plus dynamiques en {dept}. Nous sommes une entreprise à mission soutenue par des investisseurs de premier plan, au service de clients en Europe et en Amérique du Nord. Notre équipe {dept} est le pilier de notre produit et nous accélérons notre croissance.
+
+Le Poste :
+Nous recherchons un(e) {title} expérimenté(e) capable d'être opérationnel(le) rapidement. Vous serez responsable de systèmes critiques de bout en bout, de l'architecture à l'implémentation jusqu'au monitoring et à l'optimisation. Vous travaillerez étroitement avec les product managers, les équipes data et les partenaires externes.
+
+Vos Missions :
+- Architecturer et implémenter des solutions en {skills}, en garantissant scalabilité, fiabilité et performance
+- Assumer la responsabilité complète des projets {dept} — du recueil de besoins au déploiement en production et aux itérations
+- Construire et maintenir la documentation, les runbooks et les procédures opérationnelles
+- Piloter les initiatives techniques transverses et représenter le {dept} dans la planification globale
+- Identifier la dette technique et proposer des plans de remédiation pragmatiques
+- Participer aux astreintes et à la gestion des incidents de production
+
+Compétences Requises :
+- {min_exp}+ années d'expérience pratique en {dept}
+- Expertise approfondie en {skills}
+- Capacité démontrée à mener des projets et influencer la direction technique
+- Expérience dans un environnement en forte croissance où les priorités évoluent rapidement
+- Excellente communication écrite — vous documentez vos conceptions, partagez des post-mortems et rédigez des tickets clairs
+
+Atouts Supplémentaires :
+- Expérience préalable en startup ou scale-up
+- Publications, conférences ou contributions open-source en {dept}
+- Maîtrise de plusieurs langages de programmation ou frameworks
+- Expérience avec des équipes internationales / distribuées
+
+Avantages :
+- Rémunération compétitive avec primes de performance annuelles
+- Culture remote-first avec espaces de coworking optionnels
+- Budget formation et développement professionnel
+- Séminaire annuel d'entreprise et événements d'équipe trimestriels
+- Congé parental et programmes bien-être""",
+
+    """À Propos du Poste :
+Notre division {dept} est en pleine expansion et nous recrutons un(e) {title} pour renforcer notre équipe. Ce rôle se situe à l'intersection de la technologie et de l'impact business — vous construirez les systèmes et processus qui génèrent directement du chiffre d'affaires et de la satisfaction client.
+
+Responsabilités Clés :
+- Concevoir, développer et maintenir des solutions {dept} de haute qualité en utilisant {skills}
+- Collaborer avec les product owners pour prioriser les fonctionnalités et les améliorations techniques
+- Animer les revues de conception technique et assurer l'alignement avec les standards architecturaux
+- Analyser les performances système, identifier les goulots d'étranglement et implémenter des optimisations
+- Participer aux recrutements en menant des entretiens et en définissant les critères d'évaluation technique
+- Assurer une veille technologique et évaluer les nouveaux outils et frameworks
+
+Qualifications Requises :
+- Minimum {min_exp} ans d'expérience dans un rôle {dept}
+- Maîtrise de {skills}
+- Bonne compréhension des bonnes pratiques de développement incluant tests, CI/CD et gestion de version
+- Capacité prouvée à travailler en autonomie tout en tenant les parties prenantes informées
+- Expérience avec des bases de données relationnelles et/ou NoSQL en environnement de production
+
+Qualifications Souhaitées :
+- Master ou diplôme d'ingénieur dans une discipline technique pertinente
+- Expérience avec les plateformes cloud (AWS, GCP ou Azure)
+- Connaissance des pratiques DevOps et de l'infrastructure as code
+- Solide background en modélisation de données et conception d'API
+
+Rémunération et Avantages :
+- Salaire selon profil et expérience
+- Prime annuelle basée sur la performance individuelle et de l'entreprise
+- BSPCE pour tous les employés en CDI
+- Couverture santé complète
+- Horaires flexibles et politique de congés généreuse""",
 ]
 
 DEPT_LABELS_FR = {
@@ -877,6 +1153,8 @@ def _profile_to_text(profile: dict, lang: str) -> str:
             if a.get("year"):
                 line += f" ({a['year']})"
             lines.append(f"- {line}")
+            if a.get("description"):
+                lines.append(f"  {a['description']}")
         lines.append("")
 
     return "\n".join(lines)
