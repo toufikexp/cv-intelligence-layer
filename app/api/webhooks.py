@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.auth import get_api_key
+from app.config import get_settings
 from app.models.database import get_db
 from app.models.schemas import IngestionWebhookPayload
 from app.services.ingestion_webhook_service import get_ingestion_webhook_service
+from app.utils.webhook_signing import verify_signature
 
 router = APIRouter()
 
@@ -17,14 +18,15 @@ router = APIRouter()
 async def ingestion_webhook(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(get_api_key),
+    x_webhook_signature: str = Header(),
 ) -> dict[str, bool]:
     """Receive ingestion completion webhook from Semantic Search.
 
-    Authenticated via Bearer APP_API_KEY — same as all other CV layer
-    endpoints.
+    Authenticated via HMAC-SHA256 signature in X-Webhook-Signature header,
+    verified against SEARCH_WEBHOOK_SECRET.
     """
     raw_body = await request.body()
+    verify_signature(x_webhook_signature, raw_body, get_settings().search_webhook_secret)
     payload = IngestionWebhookPayload.model_validate_json(raw_body)
 
     service = get_ingestion_webhook_service()
