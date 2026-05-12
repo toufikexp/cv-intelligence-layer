@@ -1,8 +1,8 @@
-# Use NVIDIA CUDA runtime base image. The image sets CUDA_VERSION=12.1.0
+# Use NVIDIA CUDA 12.8 runtime base image. The image sets CUDA_VERSION=12.8.0
 # (valid semver) internally, which is what nvidia-container-toolkit's prestart
-# hook expects at runtime. This eliminates the env-var name collision and
-# ships a full CUDA runtime (libcudart, libcublas, cuDNN) for PyTorch/EasyOCR.
-FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+# hook expects at runtime. CUDA 12.8 + matching PyTorch wheels are required to
+# support Blackwell (sm_120) GPUs such as the RTX 50-series.
+FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
@@ -29,14 +29,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python3.11 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Install PyTorch with CUDA 12.1 wheels (matches the base image runtime) BEFORE
-# the rest of the project so easyocr's transitive torch dep is satisfied
-# without being overridden by a CPU-only wheel.
+# Install PyTorch with CUDA 12.8 wheels (matches the base image runtime, ships
+# Blackwell/sm_120 kernels) BEFORE the rest of the project so easyocr's
+# transitive torch dep is satisfied without being overridden.
 COPY pyproject.toml /app/pyproject.toml
 COPY app/__init__.py /app/app/__init__.py
 RUN pip install --no-cache-dir -U pip \
     && pip install --no-cache-dir torch torchvision \
-        --index-url https://download.pytorch.org/whl/cu121 \
+        --index-url https://download.pytorch.org/whl/cu128 \
     && pip install --no-cache-dir .
 
 # Pre-download EasyOCR (fr+en) model weights at build time. The default

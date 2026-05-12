@@ -36,10 +36,6 @@ services:
       CELERY_BROKER_URL: redis://cv-redis:6379/0
       UPLOAD_DIR: /data/uploads
       EASYOCR_GPU: ${EASYOCR_GPU:-true}
-      # Pin CUDA_VERSION to the base image's semver value. Defense in depth:
-      # prevents a stray CUDA_VERSION=cu121 in user's .env from clobbering the
-      # value that nvidia-container-toolkit's prestart hook validates.
-      CUDA_VERSION: "12.1.0"
     ports:
       - "8001:8001"
     volumes:
@@ -76,8 +72,6 @@ services:
       CELERY_BROKER_URL: redis://cv-redis:6379/0
       UPLOAD_DIR: /data/uploads
       EASYOCR_GPU: ${EASYOCR_GPU:-true}
-      # Pin CUDA_VERSION to the base image's semver value (see cv-api).
-      CUDA_VERSION: "12.1.0"
     volumes:
       - ./app:/app/app
       - ./prompts:/app/prompts
