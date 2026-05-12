@@ -33,7 +33,7 @@ class Settings(BaseSettings):
 
     upload_dir: Path = Field(default=Path("/tmp/cv_uploads"), alias="UPLOAD_DIR")
     max_file_size_mb: int = Field(default=20, alias="MAX_FILE_SIZE_MB")
-    ocr_dpi: int = Field(default=300, alias="OCR_DPI")
+    ocr_dpi: int = Field(default=200, alias="OCR_DPI")
     ocr_confidence_threshold: float = Field(default=0.6, alias="OCR_CONFIDENCE_THRESHOLD")
     fasttext_model_path: Path = Field(default=Path("/models/lid.176.bin"), alias="FASTTEXT_MODEL_PATH")
 
