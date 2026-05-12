@@ -122,12 +122,24 @@ class LLMClient:
         return _parse_json_from_llm(text)
 
 
+_llm_client: LLMClient | None = None
+
+
 def get_llm_client() -> LLMClient:
-    settings = get_settings()
-    return LLMClient(
-        provider=settings.llm_provider,
-        api_key=settings.llm_api_key or "",
-        model=settings.llm_model,
-        base_url=settings.llm_base_url,
-        prompts_dir=Path(__file__).resolve().parents[2] / "prompts",
-    )
+    global _llm_client
+    if _llm_client is None:
+        settings = get_settings()
+        _llm_client = LLMClient(
+            provider=settings.llm_provider,
+            api_key=settings.llm_api_key or "",
+            model=settings.llm_model,
+            base_url=settings.llm_base_url,
+            prompts_dir=Path(__file__).resolve().parents[2] / "prompts",
+        )
+    return _llm_client
+
+
+def reset_llm_client_cache() -> None:
+    """Clear cached client (for tests)."""
+    global _llm_client
+    _llm_client = None
