@@ -26,8 +26,6 @@ services:
   cv-api:
     build:
       context: .
-      args:
-        CUDA_VERSION: ${CUDA_VERSION:-cu121}
     env_file: .env
     environment:
       TZ: Africa/Algiers
@@ -38,11 +36,18 @@ services:
       CELERY_BROKER_URL: redis://cv-redis:6379/0
       UPLOAD_DIR: /data/uploads
       EASYOCR_GPU: ${EASYOCR_GPU:-true}
+      # Pin CUDA_VERSION to the base image's semver value. Defense in depth:
+      # prevents a stray CUDA_VERSION=cu121 in user's .env from clobbering the
+      # value that nvidia-container-toolkit's prestart hook validates.
+      CUDA_VERSION: "12.1.0"
     ports:
       - "8001:8001"
     volumes:
       - ./app:/app/app
       - ./prompts:/app/prompts
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+      - ./schemas:/app/schemas
       - ./data/uploads:/data/uploads
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -62,8 +67,6 @@ services:
   cv-worker:
     build:
       context: .
-      args:
-        CUDA_VERSION: ${CUDA_VERSION:-cu121}
     command: celery -A app.tasks.celery_app worker --loglevel=info -Q default,ocr
     env_file: .env
     environment:
@@ -73,9 +76,14 @@ services:
       CELERY_BROKER_URL: redis://cv-redis:6379/0
       UPLOAD_DIR: /data/uploads
       EASYOCR_GPU: ${EASYOCR_GPU:-true}
+      # Pin CUDA_VERSION to the base image's semver value (see cv-api).
+      CUDA_VERSION: "12.1.0"
     volumes:
       - ./app:/app/app
       - ./prompts:/app/prompts
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+      - ./schemas:/app/schemas
       - ./data/uploads:/data/uploads
     extra_hosts:
       - "host.docker.internal:host-gateway"
