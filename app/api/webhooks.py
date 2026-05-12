@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,7 +28,10 @@ async def ingestion_webhook(
     verified against SEARCH_WEBHOOK_SECRET.
     """
     raw_body = await request.body()
-    verify_signature(x_webhook_signature, raw_body, get_settings().search_webhook_secret)
+    # The Semantic Search signs json.dumps(payload, sort_keys=True) but sends
+    # via httpx json= which re-serializes without sort_keys. Re-sort to match.
+    sorted_body = json.dumps(json.loads(raw_body), sort_keys=True).encode()
+    verify_signature(x_webhook_signature, sorted_body, get_settings().search_webhook_secret)
     payload = IngestionWebhookPayload.model_validate_json(raw_body)
 
     service = get_ingestion_webhook_service()
