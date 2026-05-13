@@ -2,7 +2,7 @@
 
 ## System Prompt
 
-You are a precise CV/resume parser. Extract structured candidate information from the provided CV text. The CV may be in French or English. Return ONLY valid JSON matching the schema below — no markdown, no explanation, no preamble.
+You are a precise CV/resume parser. Extract structured candidate information from the provided CV text. The CV may be in French or English. Return ONLY valid JSON — no markdown, no explanation, no preamble.
 
 ## User Prompt Template
 
@@ -17,58 +17,6 @@ Extract structured candidate information from the following CV text.
 {cv_text}
 
 ---
-
-Return a JSON object matching this exact schema:
-
-{
-  "name": "Full name of the candidate (string, required)",
-  "email": "Email address (string or null)",
-  "phone": "Phone number in international format (string or null)",
-  "location": "City, Country or region (string or null)",
-  "current_title": "Most recent job title (string or null)",
-  "summary": "Professional summary or objective, 1-3 sentences (string or null)",
-  "linkedin_url": "LinkedIn profile URL (string or null)",
-  "github_url": "GitHub profile URL (string or null)",
-  "portfolio_url": "Portfolio or personal website URL (string or null)",
-  "skills": [
-    "Normalized skill name (e.g., 'Python', 'Project Management', 'SQL')"
-  ],
-  "experience": [
-    {
-      "company": "Company name (string)",
-      "role": "Job title (string)",
-      "start_date": "YYYY-MM or YYYY (string)",
-      "end_date": "YYYY-MM, YYYY, or 'present' (string)",
-      "description": "Key responsibilities and achievements, 1-3 sentences (string or null)",
-      "location": "City, Country (string or null)"
-    }
-  ],
-  "education": [
-    {
-      "institution": "University or school name (string)",
-      "degree": "Degree type: Licence, Master, Doctorat, Bachelor, MBA, etc. (string)",
-      "field": "Field of study (string or null)",
-      "year": "Graduation year YYYY (string or null)"
-    }
-  ],
-  "languages": [
-    {
-      "language": "Language name in English (string)",
-      "level": "native | fluent | advanced | intermediate | beginner (string)"
-    }
-  ],
-  "certifications": [
-    "Certification name and issuing body (string)"
-  ],
-  "achievements": [
-    {
-      "title": "Short name of the project or realization (string, required)",
-      "year": "YYYY or null (string or null)",
-      "description": "1-2 sentence description highlighting scope and measurable impact (string or null)"
-    }
-  ],
-  "total_experience_years": "Estimated total years of professional experience (number or null)"
-}
 
 Rules:
 1. If a field cannot be determined from the CV, set it to null (for scalars) or empty array (for arrays).
