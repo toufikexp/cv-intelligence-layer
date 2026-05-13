@@ -130,7 +130,9 @@ def mock_llm_client() -> AsyncMock:
             }
         return {}
 
-    async def _complete_json(*, prompt_key: str, variables: dict[str, Any]) -> dict[str, Any]:
+    async def _complete_json(
+        *, prompt_key: str, variables: dict[str, Any], **kwargs: Any
+    ) -> dict[str, Any]:
         return _make_response(prompt_key=prompt_key)
 
     client.complete_json = _complete_json

@@ -7,6 +7,79 @@ from app.models.schemas import CandidateProfile
 from app.services.llm_client import LLMClient
 
 
+_EXTRACTION_SCHEMA: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "name": {"type": "STRING"},
+        "email": {"type": "STRING", "nullable": True},
+        "phone": {"type": "STRING", "nullable": True},
+        "location": {"type": "STRING", "nullable": True},
+        "current_title": {"type": "STRING", "nullable": True},
+        "summary": {"type": "STRING", "nullable": True},
+        "linkedin_url": {"type": "STRING", "nullable": True},
+        "github_url": {"type": "STRING", "nullable": True},
+        "portfolio_url": {"type": "STRING", "nullable": True},
+        "skills": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "experience": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "company": {"type": "STRING"},
+                    "role": {"type": "STRING"},
+                    "start_date": {"type": "STRING", "nullable": True},
+                    "end_date": {"type": "STRING", "nullable": True},
+                    "description": {"type": "STRING", "nullable": True},
+                    "location": {"type": "STRING", "nullable": True},
+                },
+                "required": ["company", "role"],
+            },
+        },
+        "education": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "institution": {"type": "STRING"},
+                    "degree": {"type": "STRING", "nullable": True},
+                    "field": {"type": "STRING", "nullable": True},
+                    "year": {"type": "STRING", "nullable": True},
+                },
+                "required": ["institution"],
+            },
+        },
+        "languages": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "language": {"type": "STRING"},
+                    "level": {
+                        "type": "STRING",
+                        "enum": ["native", "fluent", "advanced", "intermediate", "beginner"],
+                    },
+                },
+                "required": ["language", "level"],
+            },
+        },
+        "certifications": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "achievements": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "title": {"type": "STRING"},
+                    "year": {"type": "STRING", "nullable": True},
+                    "description": {"type": "STRING", "nullable": True},
+                },
+                "required": ["title"],
+            },
+        },
+        "total_experience_years": {"type": "NUMBER", "nullable": True},
+    },
+    "required": ["name"],
+}
+
 _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 _PHONE_RE = re.compile(r"(\+?\d[\d\s().-]{7,}\d)")
 _URL_RE = re.compile(r"https?://[^\s)]+")
@@ -209,6 +282,7 @@ class EntityExtractor:
 
         data: dict[str, Any] = await self._llm.complete_json(
             prompt_key="cv_entity_extraction",
+            response_schema=_EXTRACTION_SCHEMA,
             variables={
                 "detected_language": detected_language,
                 "extraction_notes": extraction_notes,

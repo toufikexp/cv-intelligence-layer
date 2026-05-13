@@ -48,7 +48,12 @@ class LLMClient:
             self._gemini = genai.Client(api_key=api_key) if api_key else genai.Client()
 
     async def complete_json(
-        self, *, prompt_key: str, variables: dict[str, Any], thinking_budget: int = 0
+        self,
+        *,
+        prompt_key: str,
+        variables: dict[str, Any],
+        thinking_budget: int = 0,
+        response_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         bundle = self._prompts[prompt_key]
         # Use literal replacement instead of str.format() because the templates
@@ -60,7 +65,10 @@ class LLMClient:
         start = time.perf_counter()
         if self._provider == "gemini":
             result = await self._complete_gemini_json(
-                system=bundle.system, user=user, thinking_budget=thinking_budget
+                system=bundle.system,
+                user=user,
+                thinking_budget=thinking_budget,
+                response_schema=response_schema,
             )
         elif self._provider == "openai_compatible":
             result = await self._complete_openai_compatible_json(system=bundle.system, user=user)
@@ -72,7 +80,12 @@ class LLMClient:
         return result
 
     async def _complete_gemini_json(
-        self, *, system: str, user: str, thinking_budget: int = 0
+        self,
+        *,
+        system: str,
+        user: str,
+        thinking_budget: int = 0,
+        response_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if self._gemini is None:
             raise RuntimeError("Gemini client not initialized")
@@ -83,6 +96,8 @@ class LLMClient:
             "response_mime_type": "application/json",
             "thinking_config": types.ThinkingConfig(thinking_budget=thinking_budget),
         }
+        if response_schema is not None:
+            config_kwargs["response_schema"] = response_schema
         resp = await self._gemini.aio.models.generate_content(
             model=self._model,
             contents=user,
