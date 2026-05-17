@@ -91,7 +91,7 @@ class LLMClient:
             raise RuntimeError("Gemini client not initialized")
         config_kwargs: dict[str, Any] = {
             "system_instruction": system,
-            "max_output_tokens": 4096,
+            "max_output_tokens": 6144,
             "temperature": 0.1,
             "response_mime_type": "application/json",
             "thinking_config": types.ThinkingConfig(thinking_budget=thinking_budget),
