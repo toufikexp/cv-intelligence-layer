@@ -47,6 +47,9 @@ services:
       - ./data/uploads:/data/uploads
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:              
+      - default            
+      - shared-ingress     
     depends_on:
       cv-db:
         condition: service_healthy
@@ -96,3 +99,7 @@ services:
 
 volumes:
   cv-db-data:
+networks:                # ADD at file bottom
+  default:
+  shared-ingress:
+    external: true
