@@ -3,88 +3,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from google.genai import types
-
 from app.models.schemas import CandidateProfile
 from app.services.llm_client import LLMClient
 
-S = types.Schema
-T = types.Type
-
-_NULLABLE_STR = S(type=T.STRING, nullable=True)
-
-_EXTRACTION_SCHEMA = S(
-    type=T.OBJECT,
-    required=["name"],
-    properties={
-        "name": S(type=T.STRING),
-        "email": _NULLABLE_STR,
-        "phone": _NULLABLE_STR,
-        "location": _NULLABLE_STR,
-        "current_title": _NULLABLE_STR,
-        "summary": _NULLABLE_STR,
-        "linkedin_url": _NULLABLE_STR,
-        "github_url": _NULLABLE_STR,
-        "portfolio_url": _NULLABLE_STR,
-        "skills": S(type=T.ARRAY, items=S(type=T.STRING)),
-        "experience": S(
-            type=T.ARRAY,
-            items=S(
-                type=T.OBJECT,
-                required=["company", "role"],
-                properties={
-                    "company": S(type=T.STRING),
-                    "role": S(type=T.STRING),
-                    "start_date": _NULLABLE_STR,
-                    "end_date": _NULLABLE_STR,
-                    "description": _NULLABLE_STR,
-                    "location": _NULLABLE_STR,
-                },
-            ),
-        ),
-        "education": S(
-            type=T.ARRAY,
-            items=S(
-                type=T.OBJECT,
-                required=["institution"],
-                properties={
-                    "institution": S(type=T.STRING),
-                    "degree": _NULLABLE_STR,
-                    "field": _NULLABLE_STR,
-                    "year": _NULLABLE_STR,
-                },
-            ),
-        ),
-        "languages": S(
-            type=T.ARRAY,
-            items=S(
-                type=T.OBJECT,
-                required=["language", "level"],
-                properties={
-                    "language": S(type=T.STRING),
-                    "level": S(
-                        type=T.STRING,
-                        enum=["native", "fluent", "advanced", "intermediate", "beginner"],
-                    ),
-                },
-            ),
-        ),
-        "certifications": S(type=T.ARRAY, items=S(type=T.STRING)),
-        "achievements": S(
-            type=T.ARRAY,
-            items=S(
-                type=T.OBJECT,
-                required=["title"],
-                properties={
-                    "title": S(type=T.STRING),
-                    "year": _NULLABLE_STR,
-                    "description": _NULLABLE_STR,
-                },
-            ),
-        ),
-        "total_experience_years": S(type=T.NUMBER, nullable=True),
-    },
-)
 
 _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 _PHONE_RE = re.compile(r"(\+?\d[\d\s().-]{7,}\d)")
@@ -288,7 +209,6 @@ class EntityExtractor:
 
         data: dict[str, Any] = await self._llm.complete_json(
             prompt_key="cv_entity_extraction",
-            response_schema=_EXTRACTION_SCHEMA,
             variables={
                 "detected_language": detected_language,
                 "extraction_notes": extraction_notes,
