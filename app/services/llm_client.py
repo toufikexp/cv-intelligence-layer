@@ -53,7 +53,7 @@ class LLMClient:
         prompt_key: str,
         variables: dict[str, Any],
         thinking_budget: int = 0,
-        response_schema: dict[str, Any] | None = None,
+        response_schema: Any = None,
     ) -> dict[str, Any]:
         bundle = self._prompts[prompt_key]
         # Use literal replacement instead of str.format() because the templates
@@ -85,7 +85,7 @@ class LLMClient:
         system: str,
         user: str,
         thinking_budget: int = 0,
-        response_schema: dict[str, Any] | None = None,
+        response_schema: Any = None,
     ) -> dict[str, Any]:
         if self._gemini is None:
             raise RuntimeError("Gemini client not initialized")

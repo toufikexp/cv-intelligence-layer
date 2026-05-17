@@ -3,82 +3,88 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from google.genai import types
+
 from app.models.schemas import CandidateProfile
 from app.services.llm_client import LLMClient
 
+S = types.Schema
+T = types.Type
 
-_EXTRACTION_SCHEMA: dict[str, Any] = {
-    "type": "OBJECT",
-    "properties": {
-        "name": {"type": "STRING"},
-        "email": {"type": "STRING", "nullable": True},
-        "phone": {"type": "STRING", "nullable": True},
-        "location": {"type": "STRING", "nullable": True},
-        "current_title": {"type": "STRING", "nullable": True},
-        "summary": {"type": "STRING", "nullable": True},
-        "linkedin_url": {"type": "STRING", "nullable": True},
-        "github_url": {"type": "STRING", "nullable": True},
-        "portfolio_url": {"type": "STRING", "nullable": True},
-        "skills": {"type": "ARRAY", "items": {"type": "STRING"}},
-        "experience": {
-            "type": "ARRAY",
-            "items": {
-                "type": "OBJECT",
-                "properties": {
-                    "company": {"type": "STRING"},
-                    "role": {"type": "STRING"},
-                    "start_date": {"type": "STRING", "nullable": True},
-                    "end_date": {"type": "STRING", "nullable": True},
-                    "description": {"type": "STRING", "nullable": True},
-                    "location": {"type": "STRING", "nullable": True},
+_NULLABLE_STR = S(type=T.STRING, nullable=True)
+
+_EXTRACTION_SCHEMA = S(
+    type=T.OBJECT,
+    required=["name"],
+    properties={
+        "name": S(type=T.STRING),
+        "email": _NULLABLE_STR,
+        "phone": _NULLABLE_STR,
+        "location": _NULLABLE_STR,
+        "current_title": _NULLABLE_STR,
+        "summary": _NULLABLE_STR,
+        "linkedin_url": _NULLABLE_STR,
+        "github_url": _NULLABLE_STR,
+        "portfolio_url": _NULLABLE_STR,
+        "skills": S(type=T.ARRAY, items=S(type=T.STRING)),
+        "experience": S(
+            type=T.ARRAY,
+            items=S(
+                type=T.OBJECT,
+                required=["company", "role"],
+                properties={
+                    "company": S(type=T.STRING),
+                    "role": S(type=T.STRING),
+                    "start_date": _NULLABLE_STR,
+                    "end_date": _NULLABLE_STR,
+                    "description": _NULLABLE_STR,
+                    "location": _NULLABLE_STR,
                 },
-                "required": ["company", "role"],
-            },
-        },
-        "education": {
-            "type": "ARRAY",
-            "items": {
-                "type": "OBJECT",
-                "properties": {
-                    "institution": {"type": "STRING"},
-                    "degree": {"type": "STRING", "nullable": True},
-                    "field": {"type": "STRING", "nullable": True},
-                    "year": {"type": "STRING", "nullable": True},
+            ),
+        ),
+        "education": S(
+            type=T.ARRAY,
+            items=S(
+                type=T.OBJECT,
+                required=["institution"],
+                properties={
+                    "institution": S(type=T.STRING),
+                    "degree": _NULLABLE_STR,
+                    "field": _NULLABLE_STR,
+                    "year": _NULLABLE_STR,
                 },
-                "required": ["institution"],
-            },
-        },
-        "languages": {
-            "type": "ARRAY",
-            "items": {
-                "type": "OBJECT",
-                "properties": {
-                    "language": {"type": "STRING"},
-                    "level": {
-                        "type": "STRING",
-                        "enum": ["native", "fluent", "advanced", "intermediate", "beginner"],
-                    },
+            ),
+        ),
+        "languages": S(
+            type=T.ARRAY,
+            items=S(
+                type=T.OBJECT,
+                required=["language", "level"],
+                properties={
+                    "language": S(type=T.STRING),
+                    "level": S(
+                        type=T.STRING,
+                        enum=["native", "fluent", "advanced", "intermediate", "beginner"],
+                    ),
                 },
-                "required": ["language", "level"],
-            },
-        },
-        "certifications": {"type": "ARRAY", "items": {"type": "STRING"}},
-        "achievements": {
-            "type": "ARRAY",
-            "items": {
-                "type": "OBJECT",
-                "properties": {
-                    "title": {"type": "STRING"},
-                    "year": {"type": "STRING", "nullable": True},
-                    "description": {"type": "STRING", "nullable": True},
+            ),
+        ),
+        "certifications": S(type=T.ARRAY, items=S(type=T.STRING)),
+        "achievements": S(
+            type=T.ARRAY,
+            items=S(
+                type=T.OBJECT,
+                required=["title"],
+                properties={
+                    "title": S(type=T.STRING),
+                    "year": _NULLABLE_STR,
+                    "description": _NULLABLE_STR,
                 },
-                "required": ["title"],
-            },
-        },
-        "total_experience_years": {"type": "NUMBER", "nullable": True},
+            ),
+        ),
+        "total_experience_years": S(type=T.NUMBER, nullable=True),
     },
-    "required": ["name"],
-}
+)
 
 _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 _PHONE_RE = re.compile(r"(\+?\d[\d\s().-]{7,}\d)")
