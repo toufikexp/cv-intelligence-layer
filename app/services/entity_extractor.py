@@ -35,7 +35,33 @@ _DOB_KEYWORDS_RE = re.compile(
     re.IGNORECASE,
 )
 
-_NER_HEADER_LINES = 15
+_CONTACT_BLOCK_CAP = 8
+_PROSE_LINE_LEN = 80
+
+# Section headings mark the end of the contact block. The candidate's
+# name/location/DOB always appear before the first of these.
+_SECTION_HEADER_WORDS = {
+    "profil", "profile", "profil professionnel", "professional profile",
+    "professional summary", "summary", "résumé", "resume", "objectif",
+    "objective", "à propos", "about", "expérience", "expériences",
+    "experience", "experiences", "work experience", "professional experience",
+    "formation", "education", "études", "etudes", "compétences",
+    "competences", "skills", "technical skills", "langues", "languages",
+    "certifications", "certification", "projets", "projects", "contact",
+    "centres d'intérêt", "interests", "références", "references",
+    "réalisations", "achievements",
+}
+
+# Label words spaCy frequently mis-tags as LOC/GPE/PER in contact blocks.
+# They get redacted harmlessly but must never be used as the stored value.
+_PII_LABEL_WORDS = {
+    "adresse", "address", "email", "e-mail", "mail", "courriel", "tel",
+    "tél", "téléphone", "telephone", "phone", "mobile", "gsm", "fax",
+    "contact", "nationalité", "nationality", "linkedin", "github",
+}
+
+_NAME_LINE_RE = re.compile(r"^[A-Za-zÀ-ÿ' .\-]{2,40}$")
+
 _spacy_models: dict[str, spacy.Language] = {}
 
 
@@ -51,47 +77,104 @@ def _get_spacy_model(lang: str) -> spacy.Language:
     return _spacy_models[key]
 
 
-def _extract_pii_entities(text: str, language: str) -> dict[str, str | None]:
-    """Use spaCy NER on the CV header to find name, location, and DOB."""
-    lines = text.split("\n")
-    non_empty = [line for line in lines if line.strip()][:_NER_HEADER_LINES]
-    header_text = "\n".join(non_empty)
+def _is_section_header(line: str) -> bool:
+    return line.strip().rstrip(":").strip().lower() in _SECTION_HEADER_WORDS
+
+
+def _contact_block(text: str) -> str:
+    """Return the CV's contact block: the non-empty lines before the first
+    section heading or long prose line (the summary), capped for safety.
+
+    Scoping NER to this block keeps summary/experience prose out of the
+    entity scan, which otherwise produces false-positive PER/LOC entities.
+    """
+    block: list[str] = []
+    for line in text.split("\n"):
+        if not line.strip():
+            continue
+        if _is_section_header(line) or len(line.strip()) > _PROSE_LINE_LEN:
+            break
+        block.append(line)
+        if len(block) >= _CONTACT_BLOCK_CAP:
+            break
+    return "\n".join(block)
+
+
+def _looks_like_name(line: str) -> bool:
+    s = line.strip()
+    if not s[:1].isupper() or not _NAME_LINE_RE.match(s):
+        return False
+    tokens = s.split()
+    if not 1 < len(tokens) <= 4:
+        return False
+    if s.rstrip(":").lower() in _SECTION_HEADER_WORDS:
+        return False
+    return not any(t.lower() in _PII_LABEL_WORDS for t in tokens)
+
+
+def _extract_pii_entities(text: str, language: str) -> dict[str, Any]:
+    """Use spaCy NER on the contact block to find name, location, and DOB.
+
+    Returns the best single value for each field plus the full set of terms
+    to scrub from the text (so e.g. both city and country are redacted, not
+    just whichever entity spaCy happened to list first).
+    """
+    block = _contact_block(text)
 
     nlp = _get_spacy_model(language)
-    doc = nlp(header_text)
+    doc = nlp(block)
 
-    name = next(
-        (ent.text for ent in doc.ents if ent.label_ in ("PER", "PERSON")),
-        None,
-    )
-    location = next(
-        (ent.text for ent in doc.ents if ent.label_ in ("LOC", "GPE")),
-        None,
-    )
+    persons = [e.text for e in doc.ents if e.label_ in ("PER", "PERSON")]
+    locations = [
+        e.text
+        for e in doc.ents
+        if e.label_ in ("LOC", "GPE")
+        and e.text.strip().lower() not in _PII_LABEL_WORDS
+    ]
 
     dob = None
     for ent in doc.ents:
         if ent.label_ == "DATE":
-            context = header_text[max(0, ent.start_char - 40) : ent.end_char]
+            context = block[max(0, ent.start_char - 40) : ent.end_char]
             if _DOB_KEYWORDS_RE.search(context):
                 dob = ent.text
                 break
 
-    return {"name": name, "location": location, "dob": dob}
+    name = persons[0] if persons else None
+    if not name:  # NER misses all-caps / mis-tagged names; fall back to a name-like line
+        name = next(
+            (line.strip() for line in block.split("\n") if _looks_like_name(line)),
+            None,
+        )
+
+    location = locations[0] if locations else None
+
+    person_terms = list(dict.fromkeys(([name] if name else []) + persons))
+    location_terms = list(dict.fromkeys(locations))
+
+    return {
+        "name": name,
+        "location": location,
+        "dob": dob,
+        "person_terms": person_terms,
+        "location_terms": location_terms,
+    }
 
 
 def _redact_pii(
     text: str,
-    name: str | None,
-    location: str | None,
+    person_terms: list[str],
+    location_terms: list[str],
     dob: str | None,
 ) -> str:
     """Replace all PII tokens with placeholders before sending to LLM."""
     out = text
-    if name:
-        out = out.replace(name, "[REDACTED_NAME]")
-    if location:
-        out = out.replace(location, "[REDACTED_LOCATION]")
+    for term in person_terms:
+        if term and len(term.strip()) >= 2:
+            out = out.replace(term, "[REDACTED_NAME]")
+    for term in location_terms:
+        if term and len(term.strip()) >= 2:
+            out = out.replace(term, "[REDACTED_LOCATION]")
     if dob:
         out = out.replace(dob, "[REDACTED_DOB]")
     out = _EMAIL_RE.sub("[REDACTED_EMAIL]", out)
@@ -298,7 +381,10 @@ class EntityExtractor:
         pii = _extract_pii_entities(cv_text, detected_language)
 
         redacted_text = _redact_pii(
-            cv_text, pii.get("name"), pii.get("location"), pii.get("dob"),
+            cv_text,
+            pii.get("person_terms", []),
+            pii.get("location_terms", []),
+            pii.get("dob"),
         )
 
         data: dict[str, Any] = await self._llm.complete_json(

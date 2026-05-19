@@ -155,53 +155,105 @@ class TestSpacyPiiExtraction:
         assert pii["name"] is None
         assert pii["location"] is None
 
+    def test_label_word_not_used_as_location(self) -> None:
+        # Regression: spaCy tags "Adresse" as LOC; it shadowed the real
+        # location and left "Alger – Algérie" un-redacted for the LLM.
+        text = (
+            "PRÉNOM NOM\n"
+            "Adresse : Alger – Algérie\n"
+            "Email : prenom.nom@email.com\n"
+            "\n"
+            "PROFIL PROFESSIONNEL\n"
+            "Ingénieur RAN avec amélioration de la qualité de service continue."
+        )
+        pii = _extract_pii_entities(text, "fr")
+        assert pii["location"] != "Adresse"
+        assert "Alger" in pii["location_terms"]
+        assert "Algérie" in pii["location_terms"]
+
+    def test_name_fallback_for_all_caps_placeholder(self) -> None:
+        # Regression: all-caps "PRÉNOM NOM" is tagged ORG (not PER); the
+        # flat window then picked "de la" from the summary prose as the name.
+        text = (
+            "PRÉNOM NOM\n"
+            "Adresse : Alger\n"
+            "\n"
+            "PROFIL\n"
+            "amélioration de la qualité de service continue"
+        )
+        pii = _extract_pii_entities(text, "fr")
+        assert pii["name"] == "PRÉNOM NOM"
+
+    def test_location_fully_redacted_end_to_end(self) -> None:
+        text = (
+            "PRÉNOM NOM\n"
+            "Adresse : Alger – Algérie\n"
+            "\n"
+            "PROFIL\n"
+            "Ingénieur réseau expérimenté."
+        )
+        pii = _extract_pii_entities(text, "fr")
+        redacted = _redact_pii(
+            text, pii["person_terms"], pii["location_terms"], pii["dob"]
+        )
+        assert "Alger" not in redacted
+        assert "Algérie" not in redacted
+
 
 class TestPiiRedaction:
     def test_redacts_name_throughout(self) -> None:
         text = "Jean Dupont\nExperience at Acme\nReference: Jean Dupont"
-        result = _redact_pii(text, "Jean Dupont", None, None)
+        result = _redact_pii(text, ["Jean Dupont"], [], None)
         assert "Jean Dupont" not in result
         assert result.count("[REDACTED_NAME]") == 2
 
     def test_redacts_location(self) -> None:
         text = "Ahmed\nAlger, Algérie\nSkills: Python"
-        result = _redact_pii(text, "Ahmed", "Alger", None)
+        result = _redact_pii(text, ["Ahmed"], ["Alger"], None)
         assert "Ahmed" not in result
         assert "[REDACTED_NAME]" in result
         assert "[REDACTED_LOCATION]" in result
 
+    def test_redacts_all_locations(self) -> None:
+        # Both city and country must go, not just the first detected entity.
+        text = "Adresse : Alger – Algérie"
+        result = _redact_pii(text, [], ["Alger", "Algérie"], None)
+        assert "Alger" not in result
+        assert "Algérie" not in result
+        assert result.count("[REDACTED_LOCATION]") == 2
+
     def test_redacts_email(self) -> None:
         text = "Contact: user@example.com"
-        result = _redact_pii(text, None, None, None)
+        result = _redact_pii(text, [], [], None)
         assert "user@example.com" not in result
         assert "[REDACTED_EMAIL]" in result
 
     def test_redacts_phone(self) -> None:
         text = "Phone: +213 555 123 456"
-        result = _redact_pii(text, None, None, None)
+        result = _redact_pii(text, [], [], None)
         assert "+213 555 123 456" not in result
         assert "[REDACTED_PHONE]" in result
 
     def test_redacts_urls(self) -> None:
         text = "Profile: https://linkedin.com/in/jdupont"
-        result = _redact_pii(text, None, None, None)
+        result = _redact_pii(text, [], [], None)
         assert "linkedin.com" not in result
         assert "[REDACTED_URL]" in result
 
     def test_redacts_dob_regex(self) -> None:
         text = "Born: Né le 15/03/1990\nSkills: Python"
-        result = _redact_pii(text, None, None, None)
+        result = _redact_pii(text, [], [], None)
         assert "15/03/1990" not in result
         assert "[REDACTED_DOB]" in result
 
     def test_redacts_dob_spacy(self) -> None:
         text = "Né le 15 mars 1990\nSkills: Python"
-        result = _redact_pii(text, None, None, "15 mars 1990")
+        result = _redact_pii(text, [], [], "15 mars 1990")
         assert "15 mars 1990" not in result
 
     def test_preserves_non_pii(self) -> None:
         text = "Skills: Python, SQL, Docker\nExperience: 5 years at Acme Corp"
-        result = _redact_pii(text, None, None, None)
+        result = _redact_pii(text, [], [], None)
         assert "Python" in result
         assert "SQL" in result
         assert "Acme Corp" in result
@@ -219,7 +271,7 @@ class TestPiiRedaction:
             "Acme Corp — Développeur (2020-2024)\n"
             "Python, FastAPI, PostgreSQL\n"
         )
-        result = _redact_pii(text, "Jean Dupont", "Alger", None)
+        result = _redact_pii(text, ["Jean Dupont"], ["Alger", "Algérie"], None)
         assert "Jean Dupont" not in result
         assert "jean.dupont@email.com" not in result
         assert "+213 555 123 456" not in result
