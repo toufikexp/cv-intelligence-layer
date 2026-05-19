@@ -26,8 +26,21 @@ class UTF8JSONResponse(JSONResponse):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Pre-warm the EasyOCR model so the first OCR request doesn't pay cold-start."""
+    """Pre-warm ML models so the first request doesn't pay cold-start."""
     log = logging.getLogger("cv_layer.startup")
+
+    # spaCy NER models (used for PII redaction before LLM calls)
+    try:
+        from app.services.entity_extractor import load_spacy_models
+
+        log.info("Loading spaCy NER models…")
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, load_spacy_models)
+        log.info("spaCy NER models ready.")
+    except Exception as exc:
+        log.warning("spaCy model load failed (PII redaction will be unavailable): %s", exc)
+
+    # EasyOCR model
     try:
         from app.services.ocr_service import _get_reader
 

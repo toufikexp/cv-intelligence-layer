@@ -1,4 +1,4 @@
-"""Tests for entity extraction and phone normalization."""
+"""Tests for entity extraction, phone normalization, and PII redaction."""
 
 from __future__ import annotations
 
@@ -7,7 +7,20 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.models.schemas import CandidateProfile
-from app.services.entity_extractor import EntityExtractor, _normalize_phone
+from app.services.entity_extractor import (
+    EntityExtractor,
+    _DOB_AGE_RE,
+    _extract_pii_entities,
+    _normalize_phone,
+    _redact_pii,
+    load_spacy_models,
+)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _ensure_spacy_models() -> None:
+    """Load spaCy models once for the entire test session."""
+    load_spacy_models()
 
 
 class TestPhoneNormalization:
@@ -88,3 +101,144 @@ async def test_regex_email_overrides_llm(mock_llm_client: AsyncMock) -> None:
         extraction_notes="Clean",
     )
     assert profile.email == "real@real.com"
+
+
+class TestDobAgeRegex:
+    def test_french_dob(self) -> None:
+        assert _DOB_AGE_RE.search("Né le 15/03/1990")
+
+    def test_french_female_dob(self) -> None:
+        assert _DOB_AGE_RE.search("Née le 22-05-1985")
+
+    def test_english_dob(self) -> None:
+        assert _DOB_AGE_RE.search("Date of birth: 1990-03-15")
+
+    def test_age_french(self) -> None:
+        assert _DOB_AGE_RE.search("28 ans")
+
+    def test_age_english(self) -> None:
+        assert _DOB_AGE_RE.search("32 years old")
+
+    def test_age_label(self) -> None:
+        assert _DOB_AGE_RE.search("Age: 35")
+
+    def test_no_false_positive_on_year(self) -> None:
+        assert not _DOB_AGE_RE.search("2022")
+
+    def test_no_false_positive_on_experience(self) -> None:
+        assert not _DOB_AGE_RE.search("5 years of experience in Python")
+
+
+class TestSpacyPiiExtraction:
+    def test_french_name_and_location(self) -> None:
+        text = "Ahmed Benali\nIngénieur Logiciel\nAlger, Algérie\nahmed@email.com"
+        pii = _extract_pii_entities(text, "fr")
+        assert pii["name"] is not None
+        assert "benali" in pii["name"].lower() or "ahmed" in pii["name"].lower()
+        assert pii["location"] is not None
+
+    def test_english_name_and_location(self) -> None:
+        text = "Sarah Johnson\nSoftware Developer\nLondon, UK\nsarah@email.com"
+        pii = _extract_pii_entities(text, "en")
+        assert pii["name"] is not None
+        assert "johnson" in pii["name"].lower() or "sarah" in pii["name"].lower()
+
+    def test_dob_near_keyword(self) -> None:
+        text = "Jean Dupont\nNé le 15 mars 1990\nAlger"
+        pii = _extract_pii_entities(text, "fr")
+        assert pii["name"] is not None
+        # DOB detection depends on spaCy recognizing a DATE entity near keyword
+
+    def test_no_entities_in_generic_text(self) -> None:
+        header = "some random words and numbers 123\nno real entities here"
+        pii = _extract_pii_entities(header, "en")
+        assert pii["name"] is None
+        assert pii["location"] is None
+
+
+class TestPiiRedaction:
+    def test_redacts_name_throughout(self) -> None:
+        text = "Jean Dupont\nExperience at Acme\nReference: Jean Dupont"
+        result = _redact_pii(text, "Jean Dupont", None, None)
+        assert "Jean Dupont" not in result
+        assert result.count("[REDACTED_NAME]") == 2
+
+    def test_redacts_location(self) -> None:
+        text = "Ahmed\nAlger, Algérie\nSkills: Python"
+        result = _redact_pii(text, "Ahmed", "Alger", None)
+        assert "Ahmed" not in result
+        assert "[REDACTED_NAME]" in result
+        assert "[REDACTED_LOCATION]" in result
+
+    def test_redacts_email(self) -> None:
+        text = "Contact: user@example.com"
+        result = _redact_pii(text, None, None, None)
+        assert "user@example.com" not in result
+        assert "[REDACTED_EMAIL]" in result
+
+    def test_redacts_phone(self) -> None:
+        text = "Phone: +213 555 123 456"
+        result = _redact_pii(text, None, None, None)
+        assert "+213 555 123 456" not in result
+        assert "[REDACTED_PHONE]" in result
+
+    def test_redacts_urls(self) -> None:
+        text = "Profile: https://linkedin.com/in/jdupont"
+        result = _redact_pii(text, None, None, None)
+        assert "linkedin.com" not in result
+        assert "[REDACTED_URL]" in result
+
+    def test_redacts_dob_regex(self) -> None:
+        text = "Born: Né le 15/03/1990\nSkills: Python"
+        result = _redact_pii(text, None, None, None)
+        assert "15/03/1990" not in result
+        assert "[REDACTED_DOB]" in result
+
+    def test_redacts_dob_spacy(self) -> None:
+        text = "Né le 15 mars 1990\nSkills: Python"
+        result = _redact_pii(text, None, None, "15 mars 1990")
+        assert "15 mars 1990" not in result
+
+    def test_preserves_non_pii(self) -> None:
+        text = "Skills: Python, SQL, Docker\nExperience: 5 years at Acme Corp"
+        result = _redact_pii(text, None, None, None)
+        assert "Python" in result
+        assert "SQL" in result
+        assert "Acme Corp" in result
+
+    def test_full_cv_redaction(self) -> None:
+        text = (
+            "Jean Dupont\n"
+            "Développeur Senior\n"
+            "Alger, Algérie\n"
+            "jean.dupont@email.com | +213 555 123 456\n"
+            "https://linkedin.com/in/jdupont\n"
+            "Né le 15/03/1990\n"
+            "\n"
+            "EXPÉRIENCE\n"
+            "Acme Corp — Développeur (2020-2024)\n"
+            "Python, FastAPI, PostgreSQL\n"
+        )
+        result = _redact_pii(text, "Jean Dupont", "Alger", None)
+        assert "Jean Dupont" not in result
+        assert "jean.dupont@email.com" not in result
+        assert "+213 555 123 456" not in result
+        assert "linkedin.com" not in result
+        assert "15/03/1990" not in result
+        # Non-PII preserved
+        assert "Développeur Senior" in result
+        assert "Acme Corp" in result
+        assert "Python" in result
+
+
+@pytest.mark.asyncio
+async def test_extract_merges_spacy_pii(mock_llm_client: AsyncMock) -> None:
+    """Verify that spaCy-detected name is used when LLM returns Unknown."""
+    extractor = EntityExtractor(mock_llm_client)
+    profile = await extractor.extract(
+        cv_text="Ahmed Benali\nahmed@email.com\n0555123456\nDéveloppeur Python\nAlger",
+        detected_language="fr",
+        extraction_notes="Clean text extraction from document",
+    )
+    assert isinstance(profile, CandidateProfile)
+    assert profile.email == "ahmed@email.com"

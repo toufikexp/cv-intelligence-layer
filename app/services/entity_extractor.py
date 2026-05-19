@@ -1,15 +1,104 @@
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
+
+import spacy
 
 from app.models.schemas import CandidateProfile
 from app.services.llm_client import LLMClient
 
+logger = logging.getLogger("cv_layer.entity_extractor")
 
 _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 _PHONE_RE = re.compile(r"(\+?\d[\d\s().-]{7,}\d)")
 _URL_RE = re.compile(r"https?://[^\s)]+")
+
+_DOB_AGE_RE = re.compile(
+    r"(?:"
+    r"(?:Né|Née|Born|Date de naissance|D\.?N\.?|DOB|Birthdate|Date of birth)"
+    r"\s*[:;]?\s*(?:le\s+|the\s+|on\s+|du\s+)?[\d/.\- ]{6,12}"
+    r"|"
+    r"(?:Age|Âge)\s*[:;]?\s*\d{1,3}\s*(?:ans|years?\s*old?)?"
+    r"|"
+    r"\b\d{1,3}\s+ans\b"
+    r"|"
+    r"\b\d{1,3}\s+years?\s+old\b"
+    r")",
+    re.IGNORECASE,
+)
+
+_DOB_KEYWORDS_RE = re.compile(
+    r"(?:Né|Née|Born|Date de naissance|D\.?N\.?|DOB|Birthdate|"
+    r"Date of birth|Age|Âge)\b",
+    re.IGNORECASE,
+)
+
+_NER_HEADER_LINES = 15
+_spacy_models: dict[str, spacy.Language] = {}
+
+
+def load_spacy_models() -> None:
+    """Load both spaCy NER models into module-level cache. Call once at startup."""
+    _spacy_models["fr"] = spacy.load("fr_core_news_sm")
+    _spacy_models["en"] = spacy.load("en_core_web_sm")
+    logger.info("spaCy NER models loaded (fr + en)")
+
+
+def _get_spacy_model(lang: str) -> spacy.Language:
+    key = "fr" if lang.startswith("fr") else "en"
+    return _spacy_models[key]
+
+
+def _extract_pii_entities(text: str, language: str) -> dict[str, str | None]:
+    """Use spaCy NER on the CV header to find name, location, and DOB."""
+    lines = text.split("\n")
+    non_empty = [line for line in lines if line.strip()][:_NER_HEADER_LINES]
+    header_text = "\n".join(non_empty)
+
+    nlp = _get_spacy_model(language)
+    doc = nlp(header_text)
+
+    name = next(
+        (ent.text for ent in doc.ents if ent.label_ in ("PER", "PERSON")),
+        None,
+    )
+    location = next(
+        (ent.text for ent in doc.ents if ent.label_ in ("LOC", "GPE")),
+        None,
+    )
+
+    dob = None
+    for ent in doc.ents:
+        if ent.label_ == "DATE":
+            context = header_text[max(0, ent.start_char - 40) : ent.end_char]
+            if _DOB_KEYWORDS_RE.search(context):
+                dob = ent.text
+                break
+
+    return {"name": name, "location": location, "dob": dob}
+
+
+def _redact_pii(
+    text: str,
+    name: str | None,
+    location: str | None,
+    dob: str | None,
+) -> str:
+    """Replace all PII tokens with placeholders before sending to LLM."""
+    out = text
+    if name:
+        out = out.replace(name, "[REDACTED_NAME]")
+    if location:
+        out = out.replace(location, "[REDACTED_LOCATION]")
+    if dob:
+        out = out.replace(dob, "[REDACTED_DOB]")
+    out = _EMAIL_RE.sub("[REDACTED_EMAIL]", out)
+    out = _PHONE_RE.sub("[REDACTED_PHONE]", out)
+    out = _URL_RE.sub("[REDACTED_URL]", out)
+    out = _DOB_AGE_RE.sub("[REDACTED_DOB]", out)
+    return out
 
 
 def _first_match(pattern: re.Pattern[str], text: str) -> str | None:
@@ -206,20 +295,29 @@ class EntityExtractor:
         regex_email = _first_match(_EMAIL_RE, cv_text)
         regex_phone = _first_match(_PHONE_RE, cv_text)
         urls = _extract_urls(cv_text)
+        pii = _extract_pii_entities(cv_text, detected_language)
+
+        redacted_text = _redact_pii(
+            cv_text, pii.get("name"), pii.get("location"), pii.get("dob"),
+        )
 
         data: dict[str, Any] = await self._llm.complete_json(
             prompt_key="cv_entity_extraction",
             variables={
                 "detected_language": detected_language,
                 "extraction_notes": extraction_notes,
-                "cv_text": cv_text[:30000],
+                "cv_text": redacted_text[:30000],
             },
         )
 
         # Defensive normalization of Gemini output variations
         data = _normalize_llm_output(data)
 
-        # Prefer deterministic regex values when present
+        # Merge locally-extracted PII (takes priority over LLM output)
+        if pii.get("name") and (not data.get("name") or data["name"] == "Unknown"):
+            data["name"] = pii["name"]
+        if pii.get("location") and not data.get("location"):
+            data["location"] = pii["location"]
         if regex_email:
             data["email"] = regex_email
         if regex_phone and not data.get("phone"):

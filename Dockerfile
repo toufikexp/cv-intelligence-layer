@@ -39,6 +39,11 @@ RUN pip install --no-cache-dir -U pip \
         --index-url https://download.pytorch.org/whl/cu128 \
     && pip install --no-cache-dir .
 
+# Install spaCy NER models as pip packages (offline at runtime — no network access)
+RUN pip install --no-cache-dir \
+    https://github.com/explosion/spacy-models/releases/download/fr_core_news_sm-3.7.0/fr_core_news_sm-3.7.0-py3-none-any.whl \
+    https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0/en_core_web_sm-3.7.0-py3-none-any.whl
+
 # Pre-download EasyOCR (fr+en) model weights at build time. The default
 # cache is /root/.EasyOCR/model/. Removes cold-start cost on first OCR call
 # and removes any runtime network dependency on the EasyOCR CDN. gpu=False
