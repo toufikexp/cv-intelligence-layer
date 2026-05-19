@@ -263,6 +263,7 @@ def _normalize_llm_output(data: dict[str, Any]) -> dict[str, Any]:
     # 3. Normalize each experience entry
     experience = data.get("experience") or []
     if isinstance(experience, list):
+        normalized_exp: list[dict[str, Any]] = []
         for exp in experience:
             if not isinstance(exp, dict):
                 continue
@@ -272,15 +273,24 @@ def _normalize_llm_output(data: dict[str, Any]) -> dict[str, Any]:
                 exp["role"] = exp.pop("position")
             if "company" not in exp and "employer" in exp:
                 exp["company"] = exp.pop("employer")
+            if not exp.get("company"):
+                exp["company"] = exp.get("role") or ""
+            if not exp.get("role"):
+                exp["role"] = exp.get("company") or ""
+            if not exp["company"] and not exp["role"]:
+                continue
             desc = exp.get("description")
             if isinstance(desc, list):
                 exp["description"] = "\n".join(str(d).strip() for d in desc if d)
             elif isinstance(desc, dict):
                 exp["description"] = "\n".join(f"{k}: {v}" for k, v in desc.items() if v)
+            normalized_exp.append(exp)
+        data["experience"] = normalized_exp
 
     # 4. Normalize education entries
     education = data.get("education") or []
     if isinstance(education, list):
+        normalized_edu: list[dict[str, Any]] = []
         for edu in education:
             if not isinstance(edu, dict):
                 continue
@@ -290,6 +300,12 @@ def _normalize_llm_output(data: dict[str, Any]) -> dict[str, Any]:
                 edu["institution"] = edu.pop("school")
             if "institution" not in edu and "university" in edu:
                 edu["institution"] = edu.pop("university")
+            if not edu.get("institution"):
+                edu["institution"] = edu.get("degree") or edu.get("field") or ""
+            if not edu["institution"]:
+                continue
+            normalized_edu.append(edu)
+        data["education"] = normalized_edu
 
     # 5. Normalize languages: accept list[str] or list[dict] with varying keys
     languages = data.get("languages") or []
