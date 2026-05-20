@@ -50,3 +50,10 @@ class WebhookError(CVLayerError):
 
     def __init__(self, message: str) -> None:
         super().__init__(message, code="WEBHOOK_ERROR")
+
+
+class UnprocessableCVError(CVLayerError):
+    """Raised when a CV has no readable text (blank / image-only / OCR-failed)."""
+
+    def __init__(self, message: str = "CV could not be processed: no readable text found.") -> None:
+        super().__init__(message, code="UNPROCESSABLE_CV")

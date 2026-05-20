@@ -36,6 +36,7 @@ _DOB_KEYWORDS_RE = re.compile(
 )
 
 _CONTACT_BLOCK_CAP = 8
+_HEADER_ZONE_CAP = 8
 _PROSE_LINE_LEN = 80
 
 # Section headings mark the end of the contact block. The candidate's
@@ -51,6 +52,18 @@ _SECTION_HEADER_WORDS = {
     "centres d'intérêt", "interests", "références", "references",
     "réalisations", "achievements",
 }
+
+_SECTION_KEYWORDS = {
+    "experience", "experiences", "expérience", "expériences", "formation",
+    "formations", "education", "etudes", "études", "compétences", "competences",
+    "skills", "langues", "languages", "profil", "profile", "summary", "résumé",
+    "certifications", "projets", "projects", "contact", "references", "références",
+    "objectif", "objective", "aptitudes", "réalisations", "achievements",
+    "diplômes", "diplomes", "parcours", "stages", "professionnelles",
+    "professionnels", "professionnel", "professionnelle",
+}
+
+_YEAR_RANGE_RE = re.compile(r"^(?:19|20)\d{2}(?:\s*[-–/]\s*(?:19|20)\d{2})+$")
 
 # Label words spaCy frequently mis-tags as LOC/GPE/PER in contact blocks.
 # They get redacted harmlessly but must never be used as the stored value.
@@ -78,7 +91,14 @@ def _get_spacy_model(lang: str) -> spacy.Language:
 
 
 def _is_section_header(line: str) -> bool:
-    return line.strip().rstrip(":").strip().lower() in _SECTION_HEADER_WORDS
+    s = line.strip().rstrip(":").strip().lower()
+    if not s:
+        return False
+    if s in _SECTION_HEADER_WORDS:
+        return True
+    if len(s) <= 45 and set(re.findall(r"[a-zà-ÿ]+", s)) & _SECTION_KEYWORDS:
+        return True
+    return False
 
 
 def _contact_block(text: str) -> str:
@@ -102,12 +122,16 @@ def _contact_block(text: str) -> str:
 
 def _looks_like_name(line: str) -> bool:
     s = line.strip()
+    if "\n" in s:
+        return False
     if not s[:1].isupper() or not _NAME_LINE_RE.match(s):
         return False
     tokens = s.split()
     if not 1 < len(tokens) <= 4:
         return False
     if s.rstrip(":").lower() in _SECTION_HEADER_WORDS:
+        return False
+    if set(re.findall(r"[a-zà-ÿ]+", s.lower())) & _SECTION_KEYWORDS:
         return False
     return not any(t.lower() in _PII_LABEL_WORDS for t in tokens)
 
@@ -178,7 +202,7 @@ def _redact_pii(
     if dob:
         out = out.replace(dob, "[REDACTED_DOB]")
     out = _EMAIL_RE.sub("[REDACTED_EMAIL]", out)
-    out = _PHONE_RE.sub("[REDACTED_PHONE]", out)
+    out = _redact_phones(out)
     out = _URL_RE.sub("[REDACTED_URL]", out)
     out = _DOB_AGE_RE.sub("[REDACTED_DOB]", out)
     return out
@@ -216,6 +240,53 @@ def _extract_urls(text: str) -> dict[str, str | None]:
     github = next((u for u in urls if "github.com" in u.lower()), None)
     portfolio = next((u for u in urls if u not in {linkedin, github}), None)
     return {"linkedin_url": linkedin, "github_url": github, "portfolio_url": portfolio}
+
+
+def _extract_phone(text: str) -> str | None:
+    """Return the first phone-like match that is a real phone (9-15 digits, not a year range)."""
+    for m in _PHONE_RE.finditer(text):
+        cand = m.group(0).strip()
+        digits = re.sub(r"\D", "", cand)
+        if 9 <= len(digits) <= 15 and not _YEAR_RANGE_RE.match(cand):
+            return cand
+    return None
+
+
+def _redact_phones(text: str) -> str:
+    """Replace real phone numbers while leaving year ranges untouched."""
+    def _repl(m: re.Match[str]) -> str:
+        cand = m.group(0).strip()
+        digits = re.sub(r"\D", "", cand)
+        if 9 <= len(digits) <= 15 and not _YEAR_RANGE_RE.match(cand):
+            return "[REDACTED_PHONE]"
+        return m.group(0)
+    return _PHONE_RE.sub(_repl, text)
+
+
+def _strip_header_zone(text: str) -> str:
+    """Replace everything before the first section heading (cap 8 lines)
+    with a placeholder, so no header PII reaches the LLM."""
+    lines = text.split("\n")
+    cut = 0
+    seen = 0
+    for i, line in enumerate(lines):
+        if not line.strip():
+            continue
+        seen += 1
+        if _is_section_header(line):
+            cut = i
+            break
+        if seen >= _HEADER_ZONE_CAP:
+            cut = i + 1
+            break
+    if cut == 0:
+        return text
+    return "[CONTACT_DETAILS_REDACTED]\n" + "\n".join(lines[cut:])
+
+
+def usable_char_count(text: str) -> int:
+    """Count alphanumeric characters (including accented) for readability gating."""
+    return len(re.findall(r"[A-Za-zÀ-ÿ0-9]", text))
 
 
 def _normalize_llm_output(data: dict[str, Any]) -> dict[str, Any]:
@@ -391,13 +462,15 @@ class EntityExtractor:
         self._llm = llm
 
     async def extract(self, *, cv_text: str, detected_language: str, extraction_notes: str) -> CandidateProfile:
+        # Extract PII locally from the ORIGINAL text (before any stripping)
         regex_email = _first_match(_EMAIL_RE, cv_text)
-        regex_phone = _first_match(_PHONE_RE, cv_text)
+        regex_phone = _extract_phone(cv_text)
         urls = _extract_urls(cv_text)
         pii = _extract_pii_entities(cv_text, detected_language)
 
+        # Hard PII guarantee: strip header zone + defense-in-depth body redaction
         redacted_text = _redact_pii(
-            cv_text,
+            _strip_header_zone(cv_text),
             pii.get("person_terms", []),
             pii.get("location_terms", []),
             pii.get("dob"),
@@ -415,19 +488,19 @@ class EntityExtractor:
         # Defensive normalization of Gemini output variations
         data = _normalize_llm_output(data)
 
-        # Merge locally-extracted PII (takes priority over LLM output)
-        if pii.get("name") and (not data.get("name") or data["name"] == "Unknown"):
-            data["name"] = pii["name"]
-        if pii.get("location") and not data.get("location"):
-            data["location"] = pii["location"]
+        # Personal fields: spaCy/regex only — never use Gemini's guesses
+        data["name"] = pii.get("name") or "Unknown"
+        data["location"] = pii.get("location")
         if regex_email:
             data["email"] = regex_email
-        if regex_phone and not data.get("phone"):
+        if regex_phone:
             data["phone"] = _normalize_phone(regex_phone)
-        if data.get("phone"):
-            data["phone"] = _normalize_phone(data["phone"])
+        elif not data.get("phone"):
+            data["phone"] = None
+        else:
+            data["phone"] = None
         for k, v in urls.items():
-            if v and not data.get(k):
+            if v:
                 data[k] = v
 
         return CandidateProfile.model_validate(data, strict=False)

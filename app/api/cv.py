@@ -26,7 +26,7 @@ from app.models.schemas import (
 from app.services.cv_search import get_cv_search_service
 from app.services.cv_service import CVService, get_cv_service
 from app.services.document_processor import DocumentProcessor
-from app.services.entity_extractor import EntityExtractor
+from app.services.entity_extractor import EntityExtractor, usable_char_count
 from app.services.indexing_bridge import build_search_document, build_synthetic_text
 from app.services.llm_client import get_llm_client
 from app.services.ocr_service import ocr_pdf_pages
@@ -341,6 +341,16 @@ async def extract_cv(
             )
             raw_text = text
             extraction_method = method
+
+        settings = get_settings()
+        if usable_char_count(raw_text) < settings.min_cv_text_chars:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "detail": "CV could not be processed: no readable text found.",
+                    "code": "UNPROCESSABLE_CV",
+                },
+            )
 
         language = await detect_language(raw_text)
 

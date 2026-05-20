@@ -12,7 +12,8 @@ from sqlalchemy import select, update
 
 from app.models.database import CVProcessingJob, CVProfile
 from app.services.document_processor import DocumentProcessor
-from app.services.entity_extractor import EntityExtractor
+from app.exceptions import UnprocessableCVError
+from app.services.entity_extractor import EntityExtractor, usable_char_count
 from app.services.indexing_bridge import build_search_document
 from app.services.llm_client import get_llm_client
 from app.services.ocr_service import ocr_pdf_pages
@@ -240,6 +241,27 @@ def extract_entities(self, payload: dict[str, Any]) -> dict[str, Any]:
             updated_at=datetime.utcnow(),
         )
     )
+
+    raw_text = payload.get("raw_text", "")
+
+    from app.config import get_settings
+
+    settings = get_settings()
+    if usable_char_count(raw_text) < settings.min_cv_text_chars:
+        logger.warning("stage=entity_extraction status=failed cv_id=%s reason=unprocessable_cv", cv_id)
+        asyncio.run(
+            _update_cv(cv_id, status="failed", updated_at=datetime.utcnow())
+        )
+        asyncio.run(
+            _update_job(
+                job_id,
+                stage="entity_extraction",
+                status="failed",
+                error_message="UNPROCESSABLE_CV",
+                updated_at=datetime.utcnow(),
+            )
+        )
+        raise UnprocessableCVError()
 
     extraction_method = str(payload.get("extraction_method") or "text_extraction")
     extraction_notes = (
