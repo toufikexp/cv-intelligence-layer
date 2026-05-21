@@ -578,10 +578,16 @@ async def test_extract_cv_happy_path_pdf() -> None:
     mock_path = MagicMock(spec=Path)
     profile = _extracted_profile()
 
+    raw_text = (
+        "Amina Bensaid, ingénieure data avec huit ans d'expérience en Python, "
+        "machine learning et cloud. Conception de pipelines de données, modèles "
+        "de scoring et déploiements Kubernetes pour plusieurs entreprises "
+        "technologiques à Alger et à Paris."
+    )
     fake_processor = MagicMock()
     fake_processor.extract = AsyncMock(
         return_value=ExtractedText(
-            text="Raw text from PDF.",
+            text=raw_text,
             method="text_extraction",
             needs_ocr=False,
         )
@@ -606,7 +612,7 @@ async def test_extract_cv_happy_path_pdf() -> None:
     assert result.language == "fr"
     assert result.extraction_method == "text_extraction"
     assert result.file_hash == "filehash123"
-    assert result.raw_text == "Raw text from PDF."
+    assert result.raw_text == raw_text
     # OCR branch was not taken.
     ocr_mock.assert_not_called()
     # Entity extractor was called with the non-OCR notes.
@@ -660,7 +666,13 @@ async def test_extract_cv_llm_failure_returns_502_and_cleans_up() -> None:
     fake_processor = MagicMock()
     fake_processor.extract = AsyncMock(
         return_value=ExtractedText(
-            text="Raw text.",
+            text=(
+                "Amina Bensaid, ingénieure data avec huit ans d'expérience en "
+                "Python, machine learning et cloud. Conception de pipelines de "
+                "données et de modèles de scoring pour des entreprises à Alger. "
+                "Maîtrise de Kubernetes, Docker, PostgreSQL, FastAPI et des "
+                "architectures de microservices déployées en production."
+            ),
             method="text_extraction",
             needs_ocr=False,
         )
@@ -685,6 +697,14 @@ async def test_extract_cv_llm_failure_returns_502_and_cleans_up() -> None:
     assert exc_info.value.detail["code"] == "UPSTREAM_LLM_ERROR"
     # finally block ran: temp file cleaned up even on LLM failure.
     mock_path.unlink.assert_called_once_with(missing_ok=True)
+
+
+_OCR_RECOVERED_TEXT = (
+    "Amina Bensaid, ingénieure data avec huit ans d'expérience en Python, "
+    "machine learning et cloud. Conception de pipelines de données, modèles de "
+    "scoring et déploiements Kubernetes pour des entreprises à Alger et Paris. "
+    "Maîtrise de Docker, PostgreSQL, FastAPI et des architectures distribuées."
+)
 
 
 @pytest.mark.asyncio
@@ -714,14 +734,14 @@ async def test_extract_cv_ocr_branch_invokes_ocr() -> None:
         patch("app.api.cv.EntityExtractor", return_value=fake_extractor),
         patch(
             "app.api.cv.ocr_pdf_pages",
-            return_value=("OCR recovered text", "ocr_easyocr"),
+            return_value=(_OCR_RECOVERED_TEXT, "ocr_easyocr"),
         ) as ocr_mock,
     ):
         result = await extract_cv(file=_fake_upload(), _="test-key")
 
     ocr_mock.assert_called_once()
     assert result.extraction_method == "ocr_easyocr"
-    assert result.raw_text == "OCR recovered text"
+    assert result.raw_text == _OCR_RECOVERED_TEXT
     # Entity extractor should have been told the text came from OCR.
     notes = fake_extractor.extract.call_args.kwargs["extraction_notes"]
     assert "OCR" in notes

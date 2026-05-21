@@ -23,6 +23,8 @@
    "easyocr>=1.7.1",
    "numpy>=1.26.0",
    "spacy>=3.7",
+   "prometheus-client>=0.20",
+   "prometheus-fastapi-instrumentator>=7.0",
  ]
  
  [project.optional-dependencies]

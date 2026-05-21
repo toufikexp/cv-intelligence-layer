@@ -34,6 +34,7 @@ from app.services.search_client import get_ingest_search_client, get_search_clie
 from app.tasks.ingestion import start_cv_ingestion
 from app.utils.file_validation import validate_and_persist_upload
 from app.utils.language_detect import detect_language
+from app.utils.metrics import cv_unprocessable_total
 
 router = APIRouter()
 
@@ -344,6 +345,7 @@ async def extract_cv(
 
         settings = get_settings()
         if usable_char_count(raw_text) < settings.min_cv_text_chars:
+            cv_unprocessable_total.inc()
             raise HTTPException(
                 status_code=422,
                 detail={

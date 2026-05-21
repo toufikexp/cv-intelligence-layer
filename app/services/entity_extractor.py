@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from typing import Any
 
 import spacy
 
 from app.models.schemas import CandidateProfile
 from app.services.llm_client import LLMClient
+from app.utils.metrics import entity_extraction_duration_seconds
 
 logger = logging.getLogger("cv_layer.entity_extractor")
 
@@ -462,6 +464,7 @@ class EntityExtractor:
         self._llm = llm
 
     async def extract(self, *, cv_text: str, detected_language: str, extraction_notes: str) -> CandidateProfile:
+        start = time.perf_counter()
         # Extract PII locally from the ORIGINAL text (before any stripping)
         regex_email = _first_match(_EMAIL_RE, cv_text)
         regex_phone = _extract_phone(cv_text)
@@ -503,5 +506,6 @@ class EntityExtractor:
             if v:
                 data[k] = v
 
+        entity_extraction_duration_seconds.observe(time.perf_counter() - start)
         return CandidateProfile.model_validate(data, strict=False)
 

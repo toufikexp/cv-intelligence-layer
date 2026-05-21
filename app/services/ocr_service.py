@@ -3,11 +3,14 @@ from __future__ import annotations
 import os
 import re
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
 import fitz  # PyMuPDF
 import numpy as np
+
+from app.utils.metrics import cv_ocr_fallback_total, ocr_duration_seconds
 
 
 def _clean_ocr_text(text: str) -> str:
@@ -64,6 +67,7 @@ def ocr_pdf_pages(file_path: Path, *, dpi: int, min_chars: int = 50) -> tuple[st
     zoom = dpi / 72.0
     mat = fitz.Matrix(zoom, zoom)
 
+    start = time.perf_counter()
     try:
         for page in doc:
             native = page.get_text("text") or ""
@@ -83,6 +87,10 @@ def ocr_pdf_pages(file_path: Path, *, dpi: int, min_chars: int = 50) -> tuple[st
             parts.append(block.strip())
     finally:
         doc.close()
+
+    ocr_duration_seconds.observe(time.perf_counter() - start)
+    if used_ocr:
+        cv_ocr_fallback_total.inc()
 
     text = _clean_ocr_text("\n\n".join(p for p in parts if p))
     method = "ocr_easyocr" if used_ocr else "text_extraction"

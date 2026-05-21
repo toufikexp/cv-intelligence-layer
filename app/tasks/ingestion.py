@@ -20,6 +20,7 @@ from app.services.ocr_service import ocr_pdf_pages
 from app.services.search_client import get_ingest_search_client
 from app.tasks.celery_app import celery_app
 from app.utils.language_detect import detect_language
+from app.utils.metrics import cv_processed_total, cv_unprocessable_total
 
 logger = get_task_logger(__name__)
 
@@ -249,6 +250,8 @@ def extract_entities(self, payload: dict[str, Any]) -> dict[str, Any]:
     settings = get_settings()
     if usable_char_count(raw_text) < settings.min_cv_text_chars:
         logger.warning("stage=entity_extraction status=failed cv_id=%s reason=unprocessable_cv", cv_id)
+        cv_unprocessable_total.inc()
+        cv_processed_total.labels(status="failed").inc()
         asyncio.run(
             _update_cv(cv_id, status="failed", updated_at=datetime.utcnow())
         )
@@ -435,6 +438,7 @@ def submit_to_search(self, payload: dict[str, Any]) -> dict[str, Any]:
         cv_id,
         ingest_job_id,
     )
+    cv_processed_total.labels(status="success").inc()
     return payload
 
 

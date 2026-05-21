@@ -11,6 +11,7 @@ from google.genai import types
 
 from app.config import get_settings
 from app.services.prompt_loader import PromptBundle, load_prompt
+from app.utils.metrics import llm_duration_seconds, llm_errors_total
 
 
 def _parse_json_from_llm(text: str) -> dict[str, Any]:
@@ -58,17 +59,26 @@ class LLMClient:
         for key, value in variables.items():
             user = user.replace("{" + key + "}", str(value))
         start = time.perf_counter()
-        if self._provider == "gemini":
-            result = await self._complete_gemini_json(
-                system=bundle.system, user=user, thinking_budget=thinking_budget
-            )
-        elif self._provider == "openai_compatible":
-            result = await self._complete_openai_compatible_json(system=bundle.system, user=user)
-        else:
-            raise ValueError(
-                f"Unsupported LLM_PROVIDER={self._provider!r}; use 'gemini' or 'openai_compatible'."
-            )
-        _ = time.perf_counter() - start
+        try:
+            if self._provider == "gemini":
+                result = await self._complete_gemini_json(
+                    system=bundle.system, user=user, thinking_budget=thinking_budget
+                )
+            elif self._provider == "openai_compatible":
+                result = await self._complete_openai_compatible_json(
+                    system=bundle.system, user=user
+                )
+            else:
+                raise ValueError(
+                    f"Unsupported LLM_PROVIDER={self._provider!r}; use 'gemini' or 'openai_compatible'."
+                )
+        except Exception:
+            llm_errors_total.labels(prompt_key=prompt_key, provider=self._provider).inc()
+            raise
+        finally:
+            llm_duration_seconds.labels(
+                prompt_key=prompt_key, provider=self._provider
+            ).observe(time.perf_counter() - start)
         return result
 
     async def _complete_gemini_json(

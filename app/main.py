@@ -64,6 +64,15 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.include_router(api_router)
+
+    from prometheus_fastapi_instrumentator import Instrumentator
+
+    Instrumentator(
+        should_group_status_codes=True,
+        should_group_untemplated=True,
+        excluded_handlers=["/health", "/ready", "/metrics"],
+    ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+
     return app
 
 
