@@ -6,6 +6,7 @@ import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_api_key
@@ -22,7 +23,9 @@ from app.models.schemas import (
     CVStatusEnum,
     CVStatusResponse,
     CVUploadResponse,
+    SkillConnectSyncPayload,
 )
+from app.services.catalog_matcher import get_catalog_matcher
 from app.services.cv_search import get_cv_search_service
 from app.services.cv_service import CVService, get_cv_service
 from app.services.document_processor import DocumentProcessor
@@ -31,6 +34,7 @@ from app.services.indexing_bridge import build_search_document, build_synthetic_
 from app.services.llm_client import get_llm_client
 from app.services.ocr_service import ocr_pdf_pages
 from app.services.search_client import get_ingest_search_client, get_search_client
+from app.services.skillconnect_adapter import to_internal, to_skillconnect
 from app.tasks.ingestion import start_cv_ingestion
 from app.utils.file_validation import validate_and_persist_upload
 from app.utils.language_detect import detect_language
@@ -65,8 +69,15 @@ def _stage_to_cv_status(stage: str | None) -> CVStatusEnum:
 def _cv_to_profile_response(cv: CVProfile) -> CVProfileResponse:
     """Shared serialization for both cv_id and external_id GET handlers."""
     profile: CandidateProfile | None = None
+    sc_profile: dict | None = None
     if cv.profile_data:
         profile = CandidateProfile.model_validate(cv.profile_data, strict=False)
+        catalogs = get_catalog_matcher()
+        sc_profile = to_skillconnect(
+            profile,
+            cv.external_metadata,
+            catalogs,
+        )
     return CVProfileResponse(
         cv_id=cv.cv_id,
         external_id=cv.external_id,
@@ -75,6 +86,7 @@ def _cv_to_profile_response(cv: CVProfile) -> CVProfileResponse:
         language=cv.language,
         extraction_method=cv.extraction_method,
         profile=profile,
+        skillconnect_profile=sc_profile,
         created_at=cv.created_at,
         updated_at=cv.updated_at,
     )
@@ -367,10 +379,13 @@ async def extract_cv(
         try:
             llm = get_llm_client()
             extractor = EntityExtractor(llm)
-            profile = await extractor.extract(
+            catalogs = get_catalog_matcher()
+            skills_catalog_text = ", ".join(catalogs.skill_names)
+            profile, competencies = await extractor.extract(
                 cv_text=raw_text,
                 detected_language=language,
                 extraction_notes=extraction_notes,
+                skills_catalog=skills_catalog_text,
             )
         except Exception as exc:
             raise HTTPException(
@@ -381,8 +396,11 @@ async def extract_cv(
                 },
             ) from exc
 
+        sc_profile = to_skillconnect(profile, None, catalogs, competencies)
+
         return CVExtractionResponse(
             profile=profile,
+            skillconnect_profile=sc_profile,
             language=language,
             extraction_method=extraction_method,
             file_hash=file_hash,
@@ -437,6 +455,110 @@ async def create_cv_from_json(
         try:
             result = await client.ingest_documents(
                 collection_id=req.collection_id,
+                documents=[
+                    {
+                        "external_id": doc.external_id,
+                        "content": doc.content,
+                        "metadata": doc.metadata,
+                    }
+                ],
+                upsert=True,
+            )
+        except Exception as exc:
+            await cv_service.mark_index_failed(db=db, cv=cv)
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "detail": f"Semantic Search ingest failed: {exc}",
+                    "code": "UPSTREAM_SEARCH_ERROR",
+                },
+            ) from exc
+    finally:
+        await client.aclose()
+
+    ingest_job_id = result.get("job_id")
+    cv.search_ingest_job_id = str(ingest_job_id) if ingest_job_id else None
+    await db.commit()
+    await db.refresh(cv)
+
+    return _cv_to_profile_response(cv)
+
+
+@router.post("/candidates/sync", response_model=CVProfileResponse)
+async def sync_candidate(
+    req: SkillConnectSyncPayload,
+    _: str = Depends(get_api_key),
+    db: AsyncSession = Depends(get_db),
+    cv_service: CVService = Depends(get_cv_service),
+) -> CVProfileResponse:
+    """Upsert a candidate from SkillConnect's codified JSON payload.
+
+    If ``externalId`` already exists in the collection, updates the profile.
+    Otherwise creates a new row. Codes are resolved to names for search indexing;
+    the full coded payload is stored in ``external_metadata`` for lossless round-trip.
+    """
+    settings = get_settings()
+    collection_id = req.collection_id or uuid.UUID(settings.skillconnect_default_collection_id)
+
+    catalogs = get_catalog_matcher()
+    profile, external_metadata = to_internal(req.model_dump(mode="json"), catalogs)
+
+    synthetic_text = build_synthetic_text(profile)
+    file_hash = hashlib.sha256(synthetic_text.encode()).hexdigest()
+    lang = await detect_language(synthetic_text)
+
+    existing = await db.execute(
+        select(CVProfile).where(
+            CVProfile.collection_id == collection_id,
+            CVProfile.external_id == req.externalId,
+        )
+    )
+    cv_row = existing.scalar_one_or_none()
+
+    if cv_row:
+        if profile.email and profile.email != cv_row.email:
+            await cv_service.check_email_conflict(
+                db=db,
+                collection_id=collection_id,
+                email=profile.email,
+                exclude_cv_id=cv_row.cv_id,
+            )
+        cv_row.file_hash = file_hash
+        cv = await cv_service.update_profile_data(
+            db=db,
+            cv=cv_row,
+            merged_profile=profile,
+            external_metadata=external_metadata,
+        )
+        cv.raw_text = synthetic_text
+        cv.language = lang
+        cv.status = "indexing"
+        await db.commit()
+        await db.refresh(cv)
+    else:
+        cv, _job = await cv_service.create_cv_for_indexing(
+            db=db,
+            collection_id=collection_id,
+            external_id=req.externalId,
+            file_hash=file_hash,
+            profile=profile,
+            raw_text=synthetic_text,
+            language=lang,
+            callback_url=req.callback_url,
+            external_metadata=external_metadata,
+        )
+
+    doc = build_search_document(
+        external_id=cv.external_id,
+        profile=profile,
+        raw_text=synthetic_text,
+        language=lang,
+    )
+    client = get_ingest_search_client()
+    try:
+        try:
+            result = await client.ingest_documents(
+                collection_id=collection_id,
                 documents=[
                     {
                         "external_id": doc.external_id,

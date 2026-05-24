@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     ranking_default_recall_size: int = Field(default=10, alias="RANKING_DEFAULT_RECALL_SIZE")
     ranking_llm_concurrency: int = Field(default=20, alias="RANKING_LLM_CONCURRENCY")
 
+    skillconnect_default_collection_id: str = Field(
+        default="00000000-0000-0000-0000-000000000000",
+        alias="SKILLCONNECT_DEFAULT_COLLECTION_ID",
+    )
+
     min_cv_text_chars: int = Field(default=200, alias="MIN_CV_TEXT_CHARS")
 
     search_webhook_secret: str = Field(default="", alias="SEARCH_WEBHOOK_SECRET")

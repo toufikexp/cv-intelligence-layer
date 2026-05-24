@@ -50,6 +50,16 @@ async def lifespan(app: FastAPI):
         log.info("EasyOCR model ready.")
     except Exception as exc:  # never block startup on a pre-warm failure
         log.warning("OCR pre-warm failed (will load on first request): %s", exc)
+
+    # SkillConnect catalogs (skills, establishments, languages)
+    try:
+        from app.services.catalog_matcher import get_catalog_matcher
+
+        log.info("Loading SkillConnect catalogs…")
+        get_catalog_matcher()
+        log.info("SkillConnect catalogs ready.")
+    except Exception as exc:
+        log.warning("Catalog load failed (will load on first request): %s", exc)
     yield
 
 

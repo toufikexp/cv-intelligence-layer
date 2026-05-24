@@ -135,6 +135,7 @@ class CVProfileResponse(BaseModel):
     language: str | None = None
     extraction_method: str | None = None
     profile: CandidateProfile | None = None
+    skillconnect_profile: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime | None = None
 
@@ -158,11 +159,41 @@ class CVExtractionResponse(BaseModel):
     confirms the extracted profile.
     """
 
-    profile: CandidateProfile
+    profile: CandidateProfile | None = None
+    skillconnect_profile: dict[str, Any] | None = None
     language: str | None = None
     extraction_method: str
     file_hash: str
     raw_text: str
+
+
+class SkillConnectSyncPayload(BaseModel):
+    """Inbound sync payload from SkillConnect (HR platform).
+
+    Permissive: extra fields are ignored so new SkillConnect fields never 422.
+    """
+
+    externalId: str = Field(min_length=1, max_length=255)
+    collection_id: uuid.UUID | None = None
+    employee: dict[str, Any] | None = None
+    currentTitle: str | None = None
+    summary: str | None = None
+    location: str | None = None
+    skills: list[dict[str, Any]] | None = None
+    experiences: list[dict[str, Any]] | None = None
+    educations: list[dict[str, Any]] | None = None
+    languages: list[dict[str, Any]] | None = None
+    certifications: list[dict[str, Any]] | None = None
+    achievements: list[dict[str, Any]] | None = None
+    totalExperienceYears: float | None = None
+    tags: list[str] | None = None
+    visible: bool = True
+    photoPath: str | None = None
+    cvPath: str | None = None
+    rating: float | None = None
+    callback_url: str | None = None
+
+    model_config = {"extra": "ignore"}
 
 
 class CVSearchRequest(BaseModel):

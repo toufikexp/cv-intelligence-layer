@@ -33,6 +33,7 @@ class CVProfile(Base):
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     profile_data: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    external_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     language: Mapped[str | None] = mapped_column(String(5), nullable=True, index=True)

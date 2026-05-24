@@ -86,6 +86,7 @@ class CVService:
         raw_text: str,
         language: str | None,
         callback_url: str | None = None,
+        external_metadata: dict | None = None,
     ) -> tuple[CVProfile, CVProcessingJob]:
         """Create a CV row from structured JSON (no document upload).
 
@@ -128,6 +129,7 @@ class CVService:
             callback_url=callback_url,
             status="indexing",
             profile_data=profile.model_dump(mode="json"),
+            external_metadata=external_metadata,
             raw_text=raw_text,
             language=language,
             extraction_method="json_input",
@@ -267,6 +269,7 @@ class CVService:
         db: AsyncSession,
         cv: CVProfile,
         merged_profile: CandidateProfile,
+        external_metadata: dict | None = None,
     ) -> CVProfile:
         """Write a merged CandidateProfile back to the CV row (PATCH path).
 
@@ -280,6 +283,8 @@ class CVService:
         cv.candidate_name = merged_profile.name
         cv.email = merged_profile.email
         cv.phone = merged_profile.phone
+        if external_metadata is not None:
+            cv.external_metadata = external_metadata
         cv.updated_at = datetime.utcnow()
         await db.commit()
         await db.refresh(cv)

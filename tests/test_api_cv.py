@@ -593,7 +593,7 @@ async def test_extract_cv_happy_path_pdf() -> None:
         )
     )
     fake_extractor = MagicMock()
-    fake_extractor.extract = AsyncMock(return_value=profile)
+    fake_extractor.extract = AsyncMock(return_value=(profile, []))
 
     with (
         patch(
@@ -721,7 +721,7 @@ async def test_extract_cv_ocr_branch_invokes_ocr() -> None:
         )
     )
     fake_extractor = MagicMock()
-    fake_extractor.extract = AsyncMock(return_value=profile)
+    fake_extractor.extract = AsyncMock(return_value=(profile, []))
 
     with (
         patch(
