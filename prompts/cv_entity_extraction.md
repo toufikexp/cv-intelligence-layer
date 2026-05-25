@@ -67,8 +67,7 @@ Return a JSON object matching this exact schema:
       "description": "1-2 sentence description highlighting scope and measurable impact (string or null)"
     }
   ],
-  "total_experience_years": "Estimated total years of professional experience (number or null)",
-  "competencies": ["Exact name from the predefined catalog, only if evidenced in the CV (array of strings, may be empty)"]
+  "total_experience_years": "Estimated total years of professional experience (number or null)"
 }
 
 Rules:
@@ -81,10 +80,6 @@ Rules:
 7. Achievements are **discrete, named projects/realizations** that stand on their own — typically found under headings like "Projets", "Réalisations", "Key Projects", "Achievements", "Projets notables". Do NOT duplicate generic job responsibilities already captured in `experience[].description`. If the CV has no such section and no clearly-named project, return an empty array.
 8. Return ONLY the JSON object. No markdown backticks, no explanation text.
 9. Personal information (name, email, phone, location, URLs, date of birth) has been redacted for privacy. Placeholders like [REDACTED_NAME], [REDACTED_EMAIL], [REDACTED_PHONE], [REDACTED_LOCATION], [REDACTED_URL], [REDACTED_DOB] may appear in the text. Set the corresponding output fields to null. Focus on extracting current_title, summary, skills, experience, education, languages, certifications, achievements, and total_experience_years.
-10. For the `competencies` field: select ONLY exact entries from the predefined catalog below that are clearly evidenced in the CV (explicitly stated or strongly implied by job responsibilities). If none match, return an empty array. Never invent competency names outside this list.
-
-**Predefined Competencies Catalog:**
-{skills_catalog}
 ```
 
 ## Few-Shot Examples

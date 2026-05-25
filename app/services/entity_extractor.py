@@ -463,19 +463,7 @@ class EntityExtractor:
     def __init__(self, llm: LLMClient) -> None:
         self._llm = llm
 
-    async def extract(
-        self,
-        *,
-        cv_text: str,
-        detected_language: str,
-        extraction_notes: str,
-        skills_catalog: str = "",
-    ) -> tuple[CandidateProfile, list[str]]:
-        """Extract a CandidateProfile and matched competencies from CV text.
-
-        Returns (profile, competencies) where competencies is a list of exact
-        catalog names that Gemini identified as evidenced in the CV.
-        """
+    async def extract(self, *, cv_text: str, detected_language: str, extraction_notes: str) -> CandidateProfile:
         start = time.perf_counter()
         # Extract PII locally from the ORIGINAL text (before any stripping)
         regex_email = _first_match(_EMAIL_RE, cv_text)
@@ -497,18 +485,11 @@ class EntityExtractor:
                 "detected_language": detected_language,
                 "extraction_notes": extraction_notes,
                 "cv_text": redacted_text[:30000],
-                "skills_catalog": skills_catalog or "No catalog provided.",
             },
         )
 
         # Defensive normalization of Gemini output variations
         data = _normalize_llm_output(data)
-
-        # Extract competencies before removing from data
-        competencies: list[str] = []
-        raw_competencies = data.pop("competencies", None)
-        if isinstance(raw_competencies, list):
-            competencies = [str(c) for c in raw_competencies if isinstance(c, str) and c.strip()]
 
         # Personal fields: spaCy/regex only — never use Gemini's guesses
         data["name"] = pii.get("name") or "Unknown"
@@ -526,5 +507,5 @@ class EntityExtractor:
                 data[k] = v
 
         entity_extraction_duration_seconds.observe(time.perf_counter() - start)
-        return CandidateProfile.model_validate(data, strict=False), competencies
+        return CandidateProfile.model_validate(data, strict=False)
 

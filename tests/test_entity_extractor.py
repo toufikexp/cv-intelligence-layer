@@ -83,13 +83,12 @@ class TestRegexExtraction:
 @pytest.mark.asyncio
 async def test_extract_with_mocked_llm(mock_llm_client: AsyncMock) -> None:
     extractor = EntityExtractor(mock_llm_client)
-    profile, competencies = await extractor.extract(
+    profile = await extractor.extract(
         cv_text="Jean Dupont\njean@example.com\n0555123456\nPython developer",
         detected_language="fr",
         extraction_notes="Clean text extraction from document",
     )
     assert isinstance(profile, CandidateProfile)
-    assert isinstance(competencies, list)
     # Regex email should override LLM
     assert profile.email == "jean@example.com"
     # Phone should be normalized
@@ -100,7 +99,7 @@ async def test_extract_with_mocked_llm(mock_llm_client: AsyncMock) -> None:
 @pytest.mark.asyncio
 async def test_regex_email_overrides_llm(mock_llm_client: AsyncMock) -> None:
     extractor = EntityExtractor(mock_llm_client)
-    profile, _competencies = await extractor.extract(
+    profile = await extractor.extract(
         cv_text="real@real.com is the email",
         detected_language="en",
         extraction_notes="Clean",
@@ -292,7 +291,7 @@ class TestPiiRedaction:
 async def test_extract_merges_spacy_pii(mock_llm_client: AsyncMock) -> None:
     """Verify that spaCy-detected name is used (always, not just when LLM returns Unknown)."""
     extractor = EntityExtractor(mock_llm_client)
-    profile, _competencies = await extractor.extract(
+    profile = await extractor.extract(
         cv_text="Ahmed Benali\nahmed@email.com\n0555123456\nDéveloppeur Python\nAlger",
         detected_language="fr",
         extraction_notes="Clean text extraction from document",
@@ -469,7 +468,7 @@ async def test_name_spacy_only_ignores_gemini(mock_llm_client: AsyncMock) -> Non
     """Name must come from spaCy, not Gemini — even when Gemini has a value."""
     extractor = EntityExtractor(mock_llm_client)
     # CV with no recognizable name in header → should be "Unknown"
-    profile, _competencies = await extractor.extract(
+    profile = await extractor.extract(
         cv_text="EXPERIENCES PROFESSIONNELLES\nSpecialist Senior chez Acme\n2015-2017",
         detected_language="fr",
         extraction_notes="Clean",
@@ -481,7 +480,7 @@ async def test_name_spacy_only_ignores_gemini(mock_llm_client: AsyncMock) -> Non
 async def test_phone_year_range_not_extracted(mock_llm_client: AsyncMock) -> None:
     """Year ranges like 2015-2017 must never be used as phone numbers."""
     extractor = EntityExtractor(mock_llm_client)
-    profile, _competencies = await extractor.extract(
+    profile = await extractor.extract(
         cv_text="EXPERIENCES PROFESSIONNELLES\nSpecialist Senior\n2015-2017\nPython, Docker",
         detected_language="fr",
         extraction_notes="Clean",

@@ -275,21 +275,14 @@ def extract_entities(self, payload: dict[str, Any]) -> dict[str, Any]:
 
     llm = get_llm_client()
     extractor = EntityExtractor(llm)
-
-    from app.services.catalog_matcher import get_catalog_matcher
-    catalogs = get_catalog_matcher()
-    skills_catalog_text = ", ".join(catalogs.skill_names)
-
-    profile, competencies = asyncio.run(
+    profile = asyncio.run(
         extractor.extract(
             cv_text=payload.get("raw_text", ""),
             detected_language=payload.get("language", "mixed"),
             extraction_notes=extraction_notes,
-            skills_catalog=skills_catalog_text,
         )
     )
     payload["profile"] = profile.model_dump(mode="json")
-    payload["competencies"] = competencies
     asyncio.run(
         _update_job(
             job_id,
@@ -319,28 +312,22 @@ def store_profile(self, payload: dict[str, Any]) -> dict[str, Any]:
         )
     )
 
-    competencies = payload.get("competencies") or []
-    ext_meta = {"competencies": competencies} if competencies else None
-
     async def _store() -> None:
         eng, Session = _make_session()
         async with Session() as db:
-            values = {
-                "raw_text": payload.get("raw_text"),
-                "profile_data": payload.get("profile"),
-                "candidate_name": (payload.get("profile", {}) or {}).get("name"),
-                "email": (payload.get("profile", {}) or {}).get("email"),
-                "phone": (payload.get("profile", {}) or {}).get("phone"),
-                "language": payload.get("language"),
-                "extraction_method": payload.get("extraction_method"),
-                "updated_at": datetime.utcnow(),
-            }
-            if ext_meta is not None:
-                values["external_metadata"] = ext_meta
             await db.execute(
                 update(CVProfile)
                 .where(CVProfile.cv_id == cv_id)
-                .values(**values)
+                .values(
+                    raw_text=payload.get("raw_text"),
+                    profile_data=payload.get("profile"),
+                    candidate_name=(payload.get("profile", {}) or {}).get("name"),
+                    email=(payload.get("profile", {}) or {}).get("email"),
+                    phone=(payload.get("profile", {}) or {}).get("phone"),
+                    language=payload.get("language"),
+                    extraction_method=payload.get("extraction_method"),
+                    updated_at=datetime.utcnow(),
+                )
             )
             await db.commit()
         await eng.dispose()
