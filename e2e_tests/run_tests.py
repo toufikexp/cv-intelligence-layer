@@ -5,10 +5,10 @@ Usage:
     python run_tests.py --base-url http://localhost:8001 --api-key YOUR_KEY
 
     # Run specific test groups
-    python run_tests.py --tests extract,extract_sc,sync,create,search,rank
+    python run_tests.py --tests extract,create,search,rank
 
     # Control sample sizes
-    python run_tests.py --extract-count 10 --sync-count 10 --create-count 50 --rank-count 20
+    python run_tests.py --extract-count 10 --create-count 50 --rank-count 20
 
     # GPU mode (sets EASYOCR_GPU env var for OCR-heavy tests)
     python run_tests.py --mode gpu
@@ -16,16 +16,13 @@ Usage:
 Full test flow:
     1. Create a test collection
     2. Extract CVs from PDFs (stateless, no DB)
-    3. Validate extract response includes skillconnect_profile (extract_sc)
-    4. Sync candidates via SkillConnect format (POST /candidates/sync)
-    5. Validate GET response includes skillconnect_profile with codes
-    6. Create candidates from JSON profiles
-    7. Update (PATCH) a subset of candidates
-    8. Wait for Semantic Search indexing
-    9. Search candidates with various queries
-    10. Rank candidates against job descriptions
-    11. Delete all created candidates
-    12. Generate report
+    3. Create candidates from JSON profiles
+    4. Update (PATCH) a subset of candidates
+    5. Search candidates with various queries
+    6. Rank candidates against job descriptions
+    7. Delete all created candidates
+    8. Delete test collection
+    9. Generate report
 """
 
 from __future__ import annotations
@@ -219,37 +216,6 @@ class CVApiClient:
         )
         return res
 
-    def sync_candidate(
-        self, payload: dict
-    ) -> tuple[OpResult, dict | None]:
-        res, resp = self._timed_request(
-            "POST", "/api/v1/candidates/sync", "sync_candidate",
-            json=payload,
-        )
-        data = resp.json() if resp and res.success else None
-        return res, data
-
-    def get_candidate_by_external_id(
-        self, collection_id: str, external_id: str
-    ) -> tuple[OpResult, dict | None]:
-        res, resp = self._timed_request(
-            "GET",
-            f"/api/v1/collections/{collection_id}/candidates/{external_id}",
-            "get_candidate_by_external_id",
-        )
-        data = resp.json() if resp and res.success else None
-        return res, data
-
-    def delete_candidate_by_external_id(
-        self, collection_id: str, external_id: str
-    ) -> OpResult:
-        res, _ = self._timed_request(
-            "DELETE",
-            f"/api/v1/collections/{collection_id}/candidates/{external_id}",
-            "delete_candidate_by_external_id",
-        )
-        return res
-
     def search_candidates(
         self, collection_id: str, query: str, limit: int = 20
     ) -> tuple[OpResult, dict | None]:
@@ -308,223 +274,6 @@ def test_extract(
         status = "✓" if res.success else "✗"
         name = data["profile"]["name"] if data else "N/A"
         print(f"    [{i}/{len(pdf_files)}] {status} {pdf_path.name} → {name} ({res.duration_ms:.0f}ms)")
-
-    return metrics
-
-
-def test_sync(
-    client: CVApiClient,
-    collection_id: str,
-    count: int,
-) -> tuple[TestGroupMetrics, list[dict]]:
-    """Test the SkillConnect sync endpoint (POST /candidates/sync).
-
-    Creates candidates using coded SkillConnect payloads and validates
-    that the response includes skillconnect_profile with proper code resolution.
-    """
-    metrics = TestGroupMetrics(group="sync")
-    created: list[dict] = []
-
-    sample_skills = [
-        [{"skill": "SK094", "score": 8}, {"skill": "SK112", "score": 7}, {"skill": "SK042", "score": 6}],
-        [{"skill": "SK064", "score": 9}, {"skill": "SK098", "score": 8}, {"skill": "SK084", "score": 7}],
-        [{"skill": "SK011", "score": 8}, {"skill": "SK068", "score": 7}, {"skill": "SK123", "score": 9}],
-        [{"skill": "SK072", "score": 9}, {"skill": "SK094", "score": 8}, {"skill": "SK037", "score": 7}],
-        [{"skill": "SK038", "score": 8}, {"skill": "SK021", "score": 7}, {"skill": "SK070", "score": 6}],
-    ]
-    sample_names = [
-        ("Ahmed", "Benali"), ("Sarah", "Johnson"), ("Jean", "Dupont"),
-        ("Amina", "Bensaid"), ("Michael", "Smith"), ("Karim", "Mansouri"),
-        ("Emily", "Davis"), ("Sofiane", "Rahmani"), ("Claire", "Martin"),
-        ("Omar", "Khelifi"),
-    ]
-    sample_titles = [
-        "Senior Data Engineer", "Full Stack Developer", "DevOps Engineer",
-        "ML Engineer", "Cloud Architect", "Backend Developer",
-        "Data Scientist", "SRE", "Software Architect", "Tech Lead",
-    ]
-
-    actual_count = min(count, 10)
-    print(f"  Syncing {actual_count} candidates via SkillConnect format...")
-    for i in range(actual_count):
-        first, last = sample_names[i % len(sample_names)]
-        ext_id = f"SC-SYNC-{i:04d}"
-        payload = {
-            "externalId": ext_id,
-            "collection_id": collection_id,
-            "employee": {
-                "firstName": first,
-                "lastName": last,
-                "email": f"{first.lower()}.{last.lower()}@skillconnect-test.dz",
-                "phone": f"+213 5{55+i:02d} {100+i:03d} {200+i:03d}",
-                "location": "Alger, Algérie",
-                "currentTitle": sample_titles[i % len(sample_titles)],
-            },
-            "currentTitle": sample_titles[i % len(sample_titles)],
-            "summary": f"Experienced {sample_titles[i % len(sample_titles)]} with strong technical background.",
-            "skills": sample_skills[i % len(sample_skills)],
-            "experiences": [
-                {
-                    "company": "Ooredoo Algérie",
-                    "title": sample_titles[i % len(sample_titles)],
-                    "startDate": "2020-01",
-                    "endDate": "present",
-                    "description": "Technical leadership and system design.",
-                }
-            ],
-            "educations": [
-                {
-                    "establishment": "EST001",
-                    "degree": "Master",
-                    "field": "Informatique",
-                    "year": "2019",
-                }
-            ],
-            "languages": [
-                {"language": "LNG001", "proficiency": "native"},
-                {"language": "LNG002", "proficiency": "fluent"},
-                {"language": "LNG003", "proficiency": "intermediate"},
-            ],
-            "certifications": [
-                {"title": "AWS Solutions Architect", "issuer": "Amazon", "issueDate": "2023-01"}
-            ],
-            "tags": ["telecom", "engineering"],
-            "visible": True,
-        }
-
-        res, data = client.sync_candidate(payload)
-        metrics.results.append(res)
-
-        if res.success and data:
-            created.append({"cv_id": data["cv_id"], "external_id": ext_id, "data": data})
-            # Validate response structure
-            sc_prof = data.get("skillconnect_profile")
-            has_sc = sc_prof is not None
-            has_skills = bool(sc_prof.get("skills")) if sc_prof else False
-            status = "✓" if has_sc and has_skills else "⚠"
-            print(
-                f"    [{i+1}/{actual_count}] {status} {ext_id} → "
-                f"sc_profile={'yes' if has_sc else 'NO'}, "
-                f"skills={len(sc_prof.get('skills', [])) if sc_prof else 0} "
-                f"({res.duration_ms:.0f}ms)"
-            )
-        else:
-            print(f"    [{i+1}/{actual_count}] ✗ {ext_id} → {res.error or 'unknown'} ({res.duration_ms:.0f}ms)")
-
-    # Test upsert: re-sync first candidate with updated data
-    if created:
-        print("  Testing upsert (re-sync existing candidate)...")
-        first_ext_id = created[0]["external_id"]
-        upsert_payload = {
-            "externalId": first_ext_id,
-            "collection_id": collection_id,
-            "employee": {
-                "firstName": "Ahmed",
-                "lastName": "Benali",
-                "email": "ahmed.benali.updated@skillconnect-test.dz",
-                "currentTitle": "Principal Data Engineer",
-            },
-            "currentTitle": "Principal Data Engineer",
-            "skills": [
-                {"skill": "SK094", "score": 9},
-                {"skill": "SK112", "score": 8},
-                {"skill": "SK042", "score": 7},
-                {"skill": "SK068", "score": 8},
-            ],
-            "educations": [{"establishment": "EST001", "degree": "Master", "field": "Informatique", "year": "2019"}],
-            "languages": [{"language": "LNG001", "proficiency": "native"}],
-            "tags": ["telecom", "senior"],
-        }
-        res, data = client.sync_candidate(upsert_payload)
-        metrics.results.append(res)
-        if res.success and data:
-            new_title = data.get("skillconnect_profile", {}).get("currentTitle", "?")
-            print(f"    ✓ Upsert {first_ext_id} → title={new_title} ({res.duration_ms:.0f}ms)")
-        else:
-            print(f"    ✗ Upsert failed: {res.error} ({res.duration_ms:.0f}ms)")
-
-    return metrics, created
-
-
-def test_skillconnect_response(
-    client: CVApiClient,
-    collection_id: str,
-    candidates: list[dict],
-) -> TestGroupMetrics:
-    """Validate that GET responses include proper skillconnect_profile structure."""
-    metrics = TestGroupMetrics(group="sc_response")
-
-    to_check = candidates[:5]
-    print(f"  Validating SkillConnect response shape for {len(to_check)} candidates...")
-    for i, candidate in enumerate(to_check, 1):
-        ext_id = candidate["external_id"]
-        res, data = client.get_candidate_by_external_id(collection_id, ext_id)
-        metrics.results.append(res)
-
-        if res.success and data:
-            sc = data.get("skillconnect_profile")
-            checks = []
-            if sc is None:
-                checks.append("MISSING sc_profile")
-            else:
-                if "employee" not in sc:
-                    checks.append("no employee")
-                if "skills" not in sc:
-                    checks.append("no skills")
-                elif not isinstance(sc["skills"], list):
-                    checks.append("skills not list")
-                elif sc["skills"] and "skill" not in sc["skills"][0]:
-                    checks.append("skills missing code field")
-                if "educations" not in sc:
-                    checks.append("no educations")
-                if "languages" not in sc:
-                    checks.append("no languages")
-
-            if checks:
-                print(f"    [{i}] ⚠ {ext_id}: {', '.join(checks)} ({res.duration_ms:.0f}ms)")
-            else:
-                n_skills = len(sc.get("skills", []))
-                print(f"    [{i}] ✓ {ext_id}: valid sc_profile, {n_skills} skills ({res.duration_ms:.0f}ms)")
-        else:
-            print(f"    [{i}] ✗ {ext_id}: {res.error} ({res.duration_ms:.0f}ms)")
-
-    return metrics
-
-
-def test_extract_skillconnect(
-    client: CVApiClient, pdf_dir: Path, count: int
-) -> TestGroupMetrics:
-    """Test that extract API returns skillconnect_profile with competencies."""
-    metrics = TestGroupMetrics(group="extract_sc")
-    pdf_files = sorted(pdf_dir.glob("*.pdf"))[:count]
-
-    if not pdf_files:
-        print("  No PDF files found for extract_sc test.")
-        return metrics
-
-    actual_count = min(count, 3)
-    print(f"  Testing extract response shape with {actual_count} PDFs...")
-    for i, pdf_path in enumerate(pdf_files[:actual_count], 1):
-        res, data = client.extract_cv(pdf_path)
-        metrics.results.append(res)
-
-        if res.success and data:
-            has_profile = data.get("profile") is not None
-            has_sc = data.get("skillconnect_profile") is not None
-            sc = data.get("skillconnect_profile") or {}
-            n_skills = len(sc.get("skills", []))
-            coded_skills = sum(1 for s in sc.get("skills", []) if s.get("skill") is not None)
-
-            status = "✓" if has_profile and has_sc else "⚠"
-            print(
-                f"    [{i}/{actual_count}] {status} {pdf_path.name}: "
-                f"profile={'yes' if has_profile else 'NO'}, "
-                f"sc_profile={'yes' if has_sc else 'NO'}, "
-                f"skills={n_skills} ({coded_skills} coded) "
-                f"({res.duration_ms:.0f}ms)"
-            )
-        else:
-            print(f"    [{i}/{actual_count}] ✗ {pdf_path.name}: {res.error} ({res.duration_ms:.0f}ms)")
 
     return metrics
 
@@ -730,7 +479,6 @@ def generate_report(
             "total_duration_sec": round(total_duration_sec, 2),
             "config": {
                 "extract_count": args.extract_count,
-                "sync_count": args.sync_count,
                 "create_count": args.create_count,
                 "update_count": args.update_count,
                 "search_count": args.search_count,
@@ -825,10 +573,9 @@ def main() -> None:
     parser.add_argument("--base-url", default="http://localhost:8001", help="API base URL")
     parser.add_argument("--api-key", required=True, help="API key (Bearer token)")
     parser.add_argument("--mode", choices=["cpu", "gpu"], default="cpu", help="CPU or GPU mode")
-    parser.add_argument("--tests", default="extract,extract_sc,sync,create,update,search,rank,delete",
+    parser.add_argument("--tests", default="extract,create,update,search,rank,delete",
                         help="Comma-separated list of test groups to run")
     parser.add_argument("--extract-count", type=int, default=20, help="Number of PDFs to extract")
-    parser.add_argument("--sync-count", type=int, default=10, help="Number of SkillConnect sync candidates")
     parser.add_argument("--create-count", type=int, default=200, help="Number of candidates to create")
     parser.add_argument("--update-count", type=int, default=30, help="Number of candidates to update")
     parser.add_argument("--search-count", type=int, default=25, help="Number of search queries")
@@ -906,31 +653,6 @@ def main() -> None:
             all_metrics.append(m)
             print(f"  Done: {m.success_count}/{m.total} succeeded\n")
 
-        if "extract_sc" in test_groups:
-            print("━" * 60)
-            print("TEST GROUP: Extract CV — SkillConnect Response Shape")
-            print("━" * 60)
-            m = test_extract_skillconnect(client, pdf_dir, 3)
-            all_metrics.append(m)
-            print(f"  Done: {m.success_count}/{m.total} validated\n")
-
-        synced_candidates: list[dict] = []
-        if "sync" in test_groups:
-            print("━" * 60)
-            print("TEST GROUP: SkillConnect Sync (POST /candidates/sync)")
-            print("━" * 60)
-            m, synced_candidates = test_sync(client, collection_id, args.sync_count)
-            all_metrics.append(m)
-            print(f"  Done: {m.success_count}/{m.total} synced\n")
-
-            if synced_candidates:
-                print("━" * 60)
-                print("TEST GROUP: SkillConnect Response Validation (GET)")
-                print("━" * 60)
-                m = test_skillconnect_response(client, collection_id, synced_candidates)
-                all_metrics.append(m)
-                print(f"  Done: {m.success_count}/{m.total} validated\n")
-
         if "create" in test_groups:
             print("━" * 60)
             print("TEST GROUP: Create Candidates (JSON)")
@@ -950,12 +672,11 @@ def main() -> None:
             print(f"  Done: {m.success_count}/{m.total} updated\n")
 
         needs_indexed = ("search" in test_groups or "rank" in test_groups)
-        all_indexed = created_candidates + synced_candidates
-        if needs_indexed and all_indexed:
+        if needs_indexed and created_candidates:
             print("━" * 60)
             print("WAIT: Indexing completion (Semantic Search embedding)")
             print("━" * 60)
-            wait_for_indexing(client, all_indexed, timeout=args.index_timeout)
+            wait_for_indexing(client, created_candidates, timeout=args.index_timeout)
             print()
 
         if "search" in test_groups:
@@ -974,16 +695,15 @@ def main() -> None:
             all_metrics.append(m)
             print(f"  Done: {m.success_count}/{m.total} rankings\n")
 
-        all_to_delete = created_candidates + synced_candidates
-        if "delete" in test_groups and all_to_delete and not args.keep_data:
+        if "delete" in test_groups and created_candidates and not args.keep_data:
             print("━" * 60)
             print("TEST GROUP: Delete Candidates")
             print("━" * 60)
-            m = test_delete(client, all_to_delete)
+            m = test_delete(client, created_candidates)
             all_metrics.append(m)
             print(f"  Done: {m.success_count}/{m.total} deleted\n")
         elif args.keep_data:
-            print(f"\n  --keep-data: skipping deletion of {len(all_to_delete)} candidates")
+            print(f"\n  --keep-data: skipping deletion of {len(created_candidates)} candidates")
 
     except KeyboardInterrupt:
         print("\n\nTest interrupted by user.")
