@@ -207,7 +207,7 @@ the `GET`/`POST`/`PATCH` candidate endpoints. Fields:
 
 **Phase 1 — Semantic Recall:**
 - Send job description to Semantic Search `/search` with `mode: "hybrid"`, `rerank: true`
-- Retrieve top-N candidates (configurable, default 30)
+- Retrieve top-N candidates (configurable, default 20)
 - Fast: < 500ms
 
 **Phase 2 — LLM Evaluation:**
@@ -216,7 +216,7 @@ the `GET`/`POST`/`PATCH` candidate endpoints. Fields:
   `education_requirements`, `experience_details`, `education_details`, and
   `achievements_details` (so distinct deliverables count alongside job tenure).
 - Multi-criteria scoring: skills (0.25), experience (0.25), education (0.10), language (0.10).
-- Parallelized with `asyncio.Semaphore(RANKING_LLM_CONCURRENCY)` (default 5).
+- Parallelized with `asyncio.Semaphore(RANKING_LLM_CONCURRENCY)` (default 10).
 - Prompt template: `prompts/cv_ranking.md`.
 - Hits whose CV row has `profile_data is None` are dropped from the response —
   there's nothing to score against.
@@ -298,16 +298,19 @@ OCR_DPI=150
 OCR_CONFIDENCE_THRESHOLD=0.6
 EASYOCR_GPU=true                 # run EasyOCR on GPU (CUDA baked into the image)
 MIN_CV_TEXT_CHARS=200            # below this → UNPROCESSABLE_CV
-RANKING_DEFAULT_RECALL_SIZE=30
-RANKING_LLM_CONCURRENCY=5
+RANKING_DEFAULT_RECALL_SIZE=20   # candidates pulled from recall + LLM-scored
+RANKING_LLM_CONCURRENCY=10       # max parallel Gemini scoring calls
 SEARCH_WEBHOOK_SECRET=...        # verifies inbound ingestion webhook (HMAC)
 APP_WEBHOOK_SECRET=...           # signs outbound HP callbacks (HMAC)
 ```
 
-> Note: code-level defaults in `app/config.py` differ from the deployment
-> template above for two settings — `RANKING_DEFAULT_RECALL_SIZE` defaults to
-> `10` and `RANKING_LLM_CONCURRENCY` to `20` when the env var is unset. The
-> values shown here mirror `.env.example` (the operative deployment config).
+> These values now agree across `app/config.py` (code defaults),
+> `.env.example`, and `RankingRequest.recall_size` (the per-request default).
+> `recall_size` is "recall wide, display narrow" — score 20, let the LLM
+> re-rank, show the top N in the UI; raising it improves top-N quality at the
+> cost of more Gemini calls per request. `llm_concurrency` is a throttle on
+> simultaneous Gemini calls (one call per candidate) — lower it if you hit
+> 429 rate limits.
 
 ## 9. Observability
 

@@ -210,7 +210,7 @@ class RankingRequest(BaseModel):
     min_experience_years: int = 0
     required_languages: list[str] | None = None
     education_requirements: str | None = None
-    recall_size: int = Field(default=30, le=100)
+    recall_size: int = Field(default=20, le=100)
     weights: RankingWeights | None = None
 
 

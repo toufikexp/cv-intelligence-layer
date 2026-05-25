@@ -95,6 +95,14 @@
       },
       "default": []
     },
+    "achievements": {
+      "type": "array",
+      "description": "Discrete named projects or realizations, distinct from job tenure",
+      "items": {
+        "$ref": "#/$defs/AchievementEntry"
+      },
+      "default": []
+    },
     "total_experience_years": {
       "type": ["number", "null"],
       "description": "Estimated total years of professional experience",
@@ -182,6 +190,28 @@
           "type": "string",
           "description": "Proficiency level",
           "enum": ["native", "fluent", "advanced", "intermediate", "beginner"]
+        }
+      }
+    },
+    "AchievementEntry": {
+      "type": "object",
+      "required": ["title"],
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Short name of the project or realization",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "year": {
+          "type": ["string", "null"],
+          "description": "Year in YYYY format",
+          "pattern": "^\\d{4}$"
+        },
+        "description": {
+          "type": ["string", "null"],
+          "description": "1-2 sentence description highlighting scope and measurable impact",
+          "maxLength": 2000
         }
       }
     }

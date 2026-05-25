@@ -16,7 +16,7 @@ search_resp = await search_client.search(
     query=req.job_description,
     mode="hybrid",
     rerank=True,
-    limit=recall_size,   # default 30 via RANKING_DEFAULT_RECALL_SIZE
+    limit=recall_size,   # default 20 (RankingRequest.recall_size / RANKING_DEFAULT_RECALL_SIZE)
 )
 ```
 
@@ -40,7 +40,7 @@ skills, languages, experience_details, education_details,
 achievements_details, summary
 ```
 
-Parallelism: `asyncio.Semaphore(RANKING_LLM_CONCURRENCY)` — default 5.
+Parallelism: `asyncio.Semaphore(RANKING_LLM_CONCURRENCY)` — default 10.
 
 LLM returns: `skills_score`, `experience_score`, `education_score`,
 `language_score`, `recommendation`, `reasoning`, and the structured
