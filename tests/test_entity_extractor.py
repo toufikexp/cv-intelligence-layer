@@ -300,6 +300,39 @@ async def test_extract_merges_spacy_pii(mock_llm_client: AsyncMock) -> None:
     assert profile.email == "ahmed@email.com"
 
 
+class TestOcrNameFallback:
+    """OCR can leave the contact block empty (merged/garbled header). The name
+    must still be recovered locally — never via the LLM."""
+
+    def test_name_recovered_when_contact_block_empty(self) -> None:
+        # A >80-char contact/noise blob precedes the name, so _contact_block
+        # breaks immediately and returns empty. The header-window fallback must
+        # still find the clean name line.
+        text = (
+            "nicole. moore@gmail.com | +1 971 902 4932 | Dublin, Ireland "
+            "https://linkedin./in/nicole-moore extra noise tokens padding\n"
+            "Nicole Moore\n"
+            "Process Engineer\n"
+            "SUMMARY\n"
+            "Experienced Process Engineer with 15+ years of expertise."
+        )
+        pii = _extract_pii_entities(text, "en")
+        assert pii["name"] == "Nicole Moore"
+
+    def test_fallback_stays_within_header_zone(self) -> None:
+        # When the document starts with a section heading there is no header
+        # zone, so the fallback must NOT reach down into body content and pick a
+        # name-like line — the "no recognizable header name → Unknown" guarantee
+        # holds even though a name-like string exists below.
+        text = (
+            "PROFIL PROFESSIONNEL\n"
+            "Nicole Moore\n"
+            "Ingénieur expérimenté."
+        )
+        pii = _extract_pii_entities(text, "fr")
+        assert pii["name"] is None
+
+
 class TestSectionHeaderDetection:
     def test_exact_match(self) -> None:
         assert _is_section_header("EXPÉRIENCE")

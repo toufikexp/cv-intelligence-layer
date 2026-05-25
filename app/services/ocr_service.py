@@ -48,6 +48,59 @@ def _get_reader() -> Any:
     return _reader
 
 
+def _boxes_to_text(results: list[Any]) -> str:
+    """Reconstruct line-structured text from EasyOCR ``detail=1`` results.
+
+    EasyOCR returns one entry per detected text box as ``(bbox, text, conf)``,
+    where ``bbox`` is four ``[x, y]`` corner points. The previous
+    ``paragraph=True`` mode merged visually-adjacent boxes into blocks, which
+    destroyed the line breaks the downstream PII/section logic depends on (a
+    merged header line exceeds the contact-block length cutoff, so the name is
+    never found). Here we instead rebuild lines: group boxes by vertical
+    position (new line when the gap to the previous box exceeds ~0.6x the median
+    box height), order each line left-to-right, and join lines with ``\\n`` — so
+    OCR output reads like native PDF text regardless of CV template.
+    """
+    boxes: list[tuple[float, float, float, str]] = []
+    for entry in results:
+        if not entry:
+            continue
+        bbox, text = entry[0], entry[1]
+        s = str(text).strip()
+        if not s:
+            continue
+        ys = [float(pt[1]) for pt in bbox]
+        xs = [float(pt[0]) for pt in bbox]
+        y_center = sum(ys) / len(ys)
+        boxes.append((y_center, min(xs), max(ys) - min(ys), s))
+
+    if not boxes:
+        return ""
+
+    boxes.sort(key=lambda b: b[0])  # top-to-bottom by vertical center
+    heights = sorted(b[2] for b in boxes if b[2] > 0)
+    median_h = heights[len(heights) // 2] if heights else 0.0
+    threshold = 0.6 * median_h  # 0.0 when degenerate → every distinct row splits
+
+    lines: list[list[tuple[float, str]]] = []
+    current: list[tuple[float, str]] = []
+    prev_y: float | None = None
+    for y_center, x_left, _h, s in boxes:
+        if prev_y is not None and (y_center - prev_y) > threshold:
+            lines.append(current)
+            current = []
+        current.append((x_left, s))
+        prev_y = y_center
+    if current:
+        lines.append(current)
+
+    out: list[str] = []
+    for line in lines:
+        line.sort(key=lambda t: t[0])  # left-to-right
+        out.append(" ".join(t[1] for t in line))
+    return "\n".join(out)
+
+
 def ocr_pdf_pages(file_path: Path, *, dpi: int, min_chars: int = 50) -> tuple[str, str]:
     """Rasterize sparse PDF pages and OCR with EasyOCR (fra+eng).
 
@@ -82,8 +135,8 @@ def ocr_pdf_pages(file_path: Path, *, dpi: int, min_chars: int = 50) -> tuple[st
             img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(h, w, pix.n)
             if pix.n == 4:
                 img = img[:, :, :3]
-            lines = reader.readtext(img, detail=0, paragraph=True)
-            block = "\n".join(lines) if lines else ""
+            results = reader.readtext(img, detail=1, paragraph=False)
+            block = _boxes_to_text(results)
             parts.append(block.strip())
     finally:
         doc.close()

@@ -40,6 +40,10 @@ _DOB_KEYWORDS_RE = re.compile(
 _CONTACT_BLOCK_CAP = 8
 _HEADER_ZONE_CAP = 8
 _PROSE_LINE_LEN = 80
+# When the contact block yields no name (e.g. OCR merged the header into one
+# long line, emptying the block), widen the name search to this many leading
+# non-empty lines of the full text — still using the strict _looks_like_name.
+_HEADER_NAME_SCAN_LINES = 12
 
 # Section headings mark the end of the contact block. The candidate's
 # name/location/DOB always appear before the first of these.
@@ -172,6 +176,25 @@ def _extract_pii_entities(text: str, language: str) -> dict[str, Any]:
             (line.strip() for line in block.split("\n") if _looks_like_name(line)),
             None,
         )
+    if not name:
+        # Safety net for OCR: a merged/garbled contact line can empty the
+        # contact block (which cuts at the first line > _PROSE_LINE_LEN) while
+        # the real name sits on a later header line. Re-scan the header zone —
+        # non-empty lines BEFORE the first section heading, without the length
+        # cutoff — and take the first that strictly looks like a name. This
+        # never reads past a section heading, so experience/skill/title lines
+        # stay out of scope; `_looks_like_name` rejects digits/@/labels and
+        # caps at 4 tokens. Purely local — no LLM.
+        header_zone: list[str] = []
+        for line in text.split("\n"):
+            if not line.strip():
+                continue
+            if _is_section_header(line):
+                break
+            header_zone.append(line)
+            if len(header_zone) >= _HEADER_NAME_SCAN_LINES:
+                break
+        name = next((ln.strip() for ln in header_zone if _looks_like_name(ln)), None)
 
     location = locations[0] if locations else None
 
