@@ -10,9 +10,9 @@ The CV processing pipeline is fully asynchronous via Celery task chain. Each sta
 |---|-------|--------|--------|--------------|
 | 1 | File Validation | Validate MIME (PDF/DOCX), size (<20MB), compute SHA-256 hash | Validated file path + hash | Reject with 400 |
 | 2 | Text Extraction | PyMuPDF for PDF, python-docx for DOCX. If text < 50 chars/page → route to OCR | Raw text + method | Retry with OCR fallback |
-| 3 | OCR (conditional) | Rasterize at 300 DPI, run EasyOCR (fra+eng). Routed to dedicated `ocr` queue | OCR text | Mark as partial_ocr |
+| 3 | OCR (conditional) | Rasterize each sparse page at `OCR_DPI` (default 150), run EasyOCR (fra+eng). Routed to dedicated `ocr` queue. GPU when `EASYOCR_GPU` is truthy | OCR text + method `ocr_easyocr` | Falls back to whatever text was recovered |
 | 4 | Language Detection | fasttext lid.176.bin on extracted text | Language code (fr/en/mixed) | Default to 'mixed' |
-| 5 | Entity Extraction | Regex pass (email, phone, URLs) + LLM structured extraction + phone normalization | CandidateProfile JSON | Retry LLM 2x, then store partial |
+| 5 | Entity Extraction | **Local PII pass** (spaCy NER on the contact block for name/location/DOB; regex for email/phone/URLs) → header-zone strip + `[REDACTED_*]` redaction → LLM structured extraction on the **redacted** text → phone normalization. Personal fields come from the local pass, never from the LLM. CVs under `MIN_CV_TEXT_CHARS` (default 200) usable chars are rejected as `UNPROCESSABLE_CV`. | CandidateProfile JSON | Retry LLM; reject unreadable CVs |
 | 6 | Profile Storage | Upsert CandidateProfile into PostgreSQL | cv_id | DB retry 3x |
 | 7 | Search Indexing | Build search document, POST to Semantic Search /documents (async ingest). Save `search_ingest_job_id` for webhook correlation. Pipeline chain ends here. | search_doc_external_id + ingest job_id | Queue for retry |
 | 8 | Webhook Finalize | Semantic Search fires `POST /api/webhooks/ingestion` when indexing completes. CV Layer verifies HMAC, updates status to `ready` or `index_failed`, then fires callback to Hiring Platform if `callback_url` was provided. | Final status | Idempotent; ignored for already-finalized CVs |
@@ -120,10 +120,15 @@ See `schemas/openapi_cv_layer.yaml` for the complete OpenAPI spec.
 | POST | /api/v1/collections | Create CV collection | No |
 | GET | /api/v1/collections | List CV collections | No |
 | POST | /api/webhooks/ingestion | Receive Semantic Search ingest webhook | Webhook receiver |
+| GET | /health | Liveness probe | No |
+| GET | /ready | Readiness probe (DB + Semantic Search) | No |
+| GET | /metrics | Prometheus metrics (registered in `main.py`; `include_in_schema=False`, so absent from `openapi_cv_layer.yaml` and Swagger UI) | No |
 
 ### Authentication
 
 Same pattern as Semantic Search API: `Authorization: Bearer <api_key>` header.
+`/health`, `/ready`, `/metrics`, and `/api/webhooks/ingestion` are unauthenticated
+(the webhook uses HMAC-SHA256 instead of the bearer key).
 
 ### CandidateProfile schema
 
@@ -289,8 +294,28 @@ LLM_MODEL=gemini-2.5-flash
 LLM_BASE_URL=                    # only for openai_compatible provider
 UPLOAD_DIR=/data/uploads
 MAX_FILE_SIZE_MB=20
-OCR_DPI=300
+OCR_DPI=150
 OCR_CONFIDENCE_THRESHOLD=0.6
+EASYOCR_GPU=true                 # run EasyOCR on GPU (CUDA baked into the image)
+MIN_CV_TEXT_CHARS=200            # below this → UNPROCESSABLE_CV
 RANKING_DEFAULT_RECALL_SIZE=30
 RANKING_LLM_CONCURRENCY=5
+SEARCH_WEBHOOK_SECRET=...        # verifies inbound ingestion webhook (HMAC)
+APP_WEBHOOK_SECRET=...           # signs outbound HP callbacks (HMAC)
 ```
+
+> Note: code-level defaults in `app/config.py` differ from the deployment
+> template above for two settings — `RANKING_DEFAULT_RECALL_SIZE` defaults to
+> `10` and `RANKING_LLM_CONCURRENCY` to `20` when the env var is unset. The
+> values shown here mirror `.env.example` (the operative deployment config).
+
+## 9. Observability
+
+Prometheus metrics are defined in `app/utils/metrics.py` and exposed at
+`/metrics` (added in `main.py` via `prometheus-fastapi-instrumentator`, which
+also emits default HTTP request/latency series). Custom series:
+`cvlayer_cv_processed_total{status}`, `cvlayer_cv_unprocessable_total`,
+`cvlayer_cv_ocr_fallback_total`, `cvlayer_ocr_duration_seconds`,
+`cvlayer_entity_extraction_duration_seconds`,
+`cvlayer_llm_duration_seconds{prompt_key,provider}`, and
+`cvlayer_llm_errors_total{prompt_key,provider}`.

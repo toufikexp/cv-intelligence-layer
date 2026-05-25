@@ -15,8 +15,10 @@ Hiring Platform → CV Intelligence Layer (this) → Semantic Search API (existi
 - Python 3.11+, FastAPI, uvicorn
 - PostgreSQL 16 (JSONB profiles), SQLAlchemy 2.0 async + asyncpg
 - Celery + Redis (async pipeline)
-- PyMuPDF, python-docx, EasyOCR (fra+eng)
+- PyMuPDF, python-docx, EasyOCR (fra+eng) for document text + OCR
+- spaCy NER (fr + en) for **local** PII detection/redaction before any LLM call
 - Google Gemini API (default) or OpenAI-compatible local LLM for extraction/ranking/scoring
+- Prometheus metrics via `prometheus-fastapi-instrumentator` (exposed at `/metrics`)
 - Docker + Docker Compose
 
 ## Key commands
@@ -98,6 +100,8 @@ ruff check app/ tests/
 1. Recall — semantic search via Search API (`hybrid` mode, `rerank=True`) to get top-N candidates.
 2. Scoring — parallel LLM calls (Gemini, concurrency controlled by `ranking_llm_concurrency` setting) produce per-component scores. The LLM context includes `min_experience_years` plus `experience_details`, `education_details`, and `achievements_details`. Composite = weighted sum of `semantic` (0.30) + `skills` (0.25) + `experience` (0.25) + `education` (0.10) + `language` (0.10). Weights are overridable per-request via `RankingRequest.weights` (null fields fall back to defaults).
 
+**PII redaction before the LLM (CRITICAL — `app/services/entity_extractor.py`)**: Personal data must never reach Gemini. Name/location/DOB are detected **locally** via spaCy NER scoped to the CV contact block; email/phone/URLs via regex. Before the Gemini call, `_strip_header_zone` drops everything above the first section heading AND `_redact_pii` replaces any residual name/location/DOB/email/phone/URL with `[REDACTED_*]` placeholders. Personal fields on the returned `CandidateProfile` come from the local spaCy/regex pass only — never from Gemini's output. A readability gate rejects CVs with fewer than `MIN_CV_TEXT_CHARS` (default 200) usable characters as `422 UNPROCESSABLE_CV` (both the `extract` endpoint and the Celery `extract_entities` task).
+
 ## Project structure
 
 ```
@@ -131,6 +135,7 @@ app/
     ingestion.py            # 7-stage pipeline + HP callback task
   utils/
     language_detect.py, text_cleaning.py, file_validation.py, logging.py,
+    metrics.py              # Prometheus metric definitions (cvlayer_* counters/histograms)
     webhook_signing.py      # HMAC-SHA256 signing/verification
 tests/
   conftest.py               # Shared fixtures and factories
@@ -160,11 +165,19 @@ tests/
 | GET | /api/v1/collections | List collections |
 | POST | /api/webhooks/ingestion | Semantic Search ingestion webhook |
 | GET | /health | Liveness probe |
-| GET | /ready | Readiness probe |
+| GET | /ready | Readiness probe (checks DB + Semantic Search) |
+| GET | /metrics | Prometheus metrics. Registered in `main.py`, not in the OpenAPI schema / Swagger UI (`include_in_schema=False`). |
 
 ## Docker / local dev notes
 
-`./app` and `./prompts` are bind-mounted into the containers — code changes take effect on restart, no rebuild needed. `./alembic` is **not** mounted, so new migration files require a full rebuild (`docker compose up -d --build cv-api cv-worker`).
+`./app`, `./prompts`, `./alembic`, `./alembic.ini`, and `./schemas` are **all** bind-mounted into both `cv-api` and `cv-worker` (see `docker-compose.yml` `volumes:`). So edited code/prompt/migration *files* are visible inside the container immediately — but the container runs `uvicorn app.main:app` **without `--reload`** (Dockerfile `CMD`), so Python changes only take effect after `docker compose restart cv-api cv-worker`.
+
+Migration workflow (no rebuild needed — `./alembic` is mounted):
+```bash
+docker compose exec cv-api alembic upgrade head      # apply new migration
+docker compose restart cv-api cv-worker              # load any code changes
+```
+A full rebuild (`docker compose up -d --build cv-api cv-worker`) is only required when dependencies (`pyproject.toml`) or the `Dockerfile` change. When hand-writing a migration, set `revision`/`down_revision` to the **full filename-style ids** the existing migrations use (e.g. `0003_external_id_required`), not bare numbers — or use `alembic revision --autogenerate` which fills them correctly.
 
 Accepted upload MIME types: `application/pdf` and `application/vnd.openxmlformats-officedocument.wordprocessingml.document` (`.docx` only — legacy `.doc` returns `400 INVALID_FILE_TYPE`).
 

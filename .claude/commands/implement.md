@@ -28,9 +28,15 @@ Implementation steps:
    - Use `_make_session()` for a fresh engine per task; never share the
      module-level engine across forked workers
 5. DB schema change → Alembic migration:
-   `alembic revision --autogenerate -m "description"`
-   - Remember `./alembic` is NOT bind-mounted, so Docker requires
-     `docker compose up -d --build cv-api cv-worker` after a new revision
+   `alembic revision --autogenerate -m "description"` (auto-fills the
+   `revision`/`down_revision` ids; if hand-writing, use the full
+   filename-style ids the existing migrations use, e.g.
+   `0003_external_id_required`, not bare numbers)
+   - `./alembic` IS bind-mounted in `docker-compose.yml`, so no rebuild is
+     needed: `docker compose exec cv-api alembic upgrade head`, then
+     `docker compose restart cv-api cv-worker` to load code (uvicorn runs
+     without `--reload`). A `--build` is only needed when `pyproject.toml`
+     or the `Dockerfile` change.
 6. Write tests in `tests/`
    - Mock external services (`SemanticSearchClient`, `LLMClient`) — no real
      network calls in tests

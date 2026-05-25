@@ -7,7 +7,7 @@ Covers the Document Processor + Entity Extractor + JSON-create paths.
 - PDFs → PyMuPDF (`fitz`); DOCX → `python-docx` (DOCX tables are flattened to `cell | cell` rows)
 - OCR trigger: any page yielding `< 50` characters of native text sets `needs_ocr=True`
 - OCR is PDF-only — DOCX never goes through OCR
-- OCR pipeline: per-page rasterize at `OCR_DPI` (default 300) → EasyOCR (fra+eng), `gpu=False`
+- OCR pipeline: per-page rasterize at `OCR_DPI` (default 150) → EasyOCR (fra+eng). GPU is used when `EASYOCR_GPU` is truthy (default `true` in `docker-compose.yml`); CPU otherwise. The reader is a process-wide singleton, pre-warmed at startup and in each Celery worker.
 - Pages with sufficient native text are kept as-is; OCR runs only on the sparse ones
 - OCR tasks are routed to the dedicated `ocr` queue via `task_routes` in
   `app/tasks/celery_app.py`. Run a worker with `-Q ocr` to handle them.
@@ -17,6 +17,25 @@ Covers the Document Processor + Entity Extractor + JSON-create paths.
 - Preserve `raw_text` on the CV row — used for re-indexing on PATCH and to
   ground the search document content
 - Text cleaning utilities live in `app/utils/text_cleaning.py`
+
+## PII redaction (CRITICAL — no PII reaches the LLM)
+
+`EntityExtractor.extract` guarantees personal data never leaves the process to Gemini:
+
+- **Local detection on the original text**: name/location/DOB via spaCy NER
+  scoped to the contact block (`_extract_pii_entities`), email/phone/URLs via
+  regex. A name-like-line fallback handles all-caps names spaCy tags as ORG.
+- **Two-layer scrub before the LLM call**: `_strip_header_zone` replaces
+  everything above the first section heading with `[CONTACT_DETAILS_REDACTED]`,
+  then `_redact_pii` replaces any residual name/location/DOB/email/phone/URL with
+  `[REDACTED_*]`. Only this redacted text (capped at 30k chars) is sent to Gemini.
+- **Personal fields come from the local pass, not Gemini**: after the LLM call,
+  `name`/`location`/`email`/`phone`/URLs on the returned profile are overwritten
+  from the spaCy/regex results (`name` defaults to `"Unknown"`). The prompt also
+  instructs Gemini to emit `null` for the redacted placeholders.
+- **Readability gate**: `usable_char_count(text) < MIN_CV_TEXT_CHARS` (default
+  200) → `422 UNPROCESSABLE_CV` in the extract endpoint, and a `failed` CV +
+  `UnprocessableCVError` in the Celery `extract_entities` task.
 
 ## Entity Extraction Rules
 
@@ -87,7 +106,9 @@ INVALID_FILE_TYPE`. Size violations return `400 FILE_TOO_LARGE`.
 
 ## JSON-create path (`POST /candidates`)
 
-Skips the entire Celery pipeline. The handler:
+Skips the entire Celery pipeline (no file, no OCR, no LLM, no PII step — the
+caller already supplies a structured `CandidateProfile`). The handler
+(`create_cv_from_json` in `app/api/cv.py`):
 
 1. `build_synthetic_text(profile)` from `app/services/indexing_bridge.py`
    composes a deterministic plain-text representation of the structured profile
@@ -95,14 +116,17 @@ Skips the entire Celery pipeline. The handler:
    Languages, Certifications, Achievements).
 2. `file_hash = sha256(synthetic_text)` — used for collection-level dedup.
 3. `detect_language(synthetic_text)` — same fasttext call as the doc pipeline.
-4. `cv_service.create_ready_cv(...)` writes a row born `status="ready"` with
-   `extraction_method="json_input"` and a paired `CVProcessingJob` already
-   `status="completed"` so `/status` is consistent.
-5. Synchronous `ingest_documents(upsert=True)` — on failure the CV is marked
+4. `cv_service.create_cv_for_indexing(...)` writes a row born `status="indexing"`
+   with `extraction_method="json_input"` and a paired `CVProcessingJob`
+   (`stage="indexing"`, `status="submitted"`, `progress_pct=90`).
+5. Synchronous `ingest_documents(upsert=True)`; the returned Semantic Search
+   `job_id` is stored as `search_ingest_job_id`. On failure the CV is marked
    `index_failed` and the handler returns `502 UPSTREAM_SEARCH_ERROR`.
 
-The Hiring Platform never receives a webhook for this path because the row is
-ready by the time the handler returns.
+The row is finalized to `ready` (or `index_failed`) by the **ingestion webhook**
+exactly like the upload path — so if a `callback_url` was supplied, the Hiring
+Platform DOES receive the completion callback once Semantic Search finishes
+embedding. The handler returns `status="indexing"`, not `ready`.
 
 ## Exception handling
 
