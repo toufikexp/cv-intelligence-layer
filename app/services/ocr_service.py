@@ -44,7 +44,12 @@ def _get_reader() -> Any:
                 "yes",
                 "on",
             )
-            _reader = easyocr.Reader(["fr", "en"], gpu=use_gpu, verbose=False)
+            kwargs: dict[str, Any] = {"gpu": use_gpu, "verbose": False}
+            model_dir = os.getenv("EASYOCR_MODULE_PATH")
+            if model_dir:
+                kwargs["model_storage_directory"] = model_dir
+                kwargs["download_enabled"] = False
+            _reader = easyocr.Reader(["fr", "en"], **kwargs)
     return _reader
 
 

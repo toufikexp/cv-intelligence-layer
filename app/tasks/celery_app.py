@@ -25,8 +25,8 @@ celery_app = make_celery()
 
 
 @worker_process_init.connect
-def _prewarm_ocr(**_: object) -> None:
-    """Pre-warm the EasyOCR model in each Celery worker process."""
+def _prewarm_models(**_: object) -> None:
+    """Pre-warm EasyOCR and spaCy models in each Celery worker process."""
     log = logging.getLogger("cv_layer.startup")
     try:
         from app.services.ocr_service import _get_reader
@@ -36,4 +36,12 @@ def _prewarm_ocr(**_: object) -> None:
         log.info("EasyOCR model ready in worker.")
     except Exception as exc:
         log.warning("OCR pre-warm failed in worker (will load on first task): %s", exc)
+    try:
+        from app.services.entity_extractor import load_spacy_models
+
+        log.info("Loading spaCy NER models in worker process…")
+        load_spacy_models()
+        log.info("spaCy models ready in worker.")
+    except Exception as exc:
+        log.warning("spaCy load failed in worker (will load on first task): %s", exc)
 

@@ -1,0 +1,41 @@
+# CV-Intelligence — CPU build (production, no GPU)
+# For environments behind a corporate proxy that blocks build-time downloads
+# from GitHub/CDN, EasyOCR weights and spaCy models are pre-baked from local
+# directories (easyocr-models/ and cv-models/spacy/).
+FROM python:3.11-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgl1 libglib2.0-0 build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml /app/pyproject.toml
+COPY app/__init__.py /app/app/__init__.py
+RUN pip install --no-cache-dir -U pip \
+    && pip install --no-cache-dir torch torchvision \
+        --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir .
+
+# Pre-baked EasyOCR weights (corporate proxy blocks HTTPS downloads from GitHub)
+COPY easyocr-models /opt/easyocr-models
+ENV EASYOCR_MODULE_PATH=/opt/easyocr-models
+RUN python -c "import easyocr; easyocr.Reader(['fr', 'en'], gpu=False, verbose=False, model_storage_directory='/opt/easyocr-models')"
+
+# spaCy models (offline — proxy blocks build-time download from GitHub releases)
+COPY cv-models/spacy /tmp/spacy-wheels
+RUN pip install --no-index --no-deps /tmp/spacy-wheels/*.whl && rm -rf /tmp/spacy-wheels
+
+COPY app /app/app
+COPY prompts /app/prompts
+COPY schemas /app/schemas
+COPY alembic /app/alembic
+COPY alembic.ini /app/alembic.ini
+
+EXPOSE 8001
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"]

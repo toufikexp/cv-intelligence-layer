@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     llm_api_key: str = Field(default="", alias="LLM_API_KEY")
     llm_model: str = Field(default="gemini-2.5-flash", alias="LLM_MODEL")
     llm_base_url: str | None = Field(default=None, alias="LLM_BASE_URL")
+    llm_ssl_verify: bool = Field(default=True, alias="LLM_SSL_VERIFY")
 
     upload_dir: Path = Field(default=Path("/tmp/cv_uploads"), alias="UPLOAD_DIR")
     max_file_size_mb: int = Field(default=20, alias="MAX_FILE_SIZE_MB")

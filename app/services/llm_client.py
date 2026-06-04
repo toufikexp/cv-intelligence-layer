@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import ssl
 import time
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,14 @@ from google.genai import types
 from app.config import get_settings
 from app.services.prompt_loader import PromptBundle, load_prompt
 from app.utils.metrics import llm_duration_seconds, llm_errors_total
+
+
+def _insecure_ssl_context() -> ssl.SSLContext:
+    """Return an SSL context that skips certificate verification."""
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
 
 
 def _parse_json_from_llm(text: str) -> dict[str, Any]:
@@ -34,11 +43,13 @@ class LLMClient:
         model: str,
         base_url: str | None,
         prompts_dir: Path,
+        ssl_verify: bool = True,
     ) -> None:
         self._provider = provider.lower().strip()
         self._api_key = api_key
         self._model = model
         self._base_url = base_url
+        self._ssl_verify = ssl_verify
         self._prompts: dict[str, PromptBundle] = {
             "cv_entity_extraction": load_prompt(prompts_dir / "cv_entity_extraction.md"),
             "cv_ranking": load_prompt(prompts_dir / "cv_ranking.md"),
@@ -46,7 +57,16 @@ class LLMClient:
         }
         self._gemini: genai.Client | None = None
         if self._provider == "gemini":
-            self._gemini = genai.Client(api_key=api_key) if api_key else genai.Client()
+            kwargs: dict[str, Any] = {}
+            if api_key:
+                kwargs["api_key"] = api_key
+            if not ssl_verify:
+                ctx = _insecure_ssl_context()
+                kwargs["http_options"] = types.HttpOptions(
+                    client_args={"verify": ctx},
+                    async_client_args={"verify": ctx},
+                )
+            self._gemini = genai.Client(**kwargs)
 
     async def complete_json(
         self, *, prompt_key: str, variables: dict[str, Any], thinking_budget: int = 0
@@ -122,7 +142,7 @@ class LLMClient:
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=120.0, verify=self._ssl_verify) as client:
             r = await client.post(url, json=payload, headers=headers)
             r.raise_for_status()
             data = r.json()
@@ -145,6 +165,7 @@ def get_llm_client() -> LLMClient:
             model=settings.llm_model,
             base_url=settings.llm_base_url,
             prompts_dir=Path(__file__).resolve().parents[2] / "prompts",
+            ssl_verify=settings.llm_ssl_verify,
         )
     return _llm_client
 
