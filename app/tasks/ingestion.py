@@ -273,15 +273,18 @@ def extract_entities(self, payload: dict[str, Any]) -> dict[str, Any]:
         else "Clean text extraction from document"
     )
 
-    llm = get_llm_client()
-    extractor = EntityExtractor(llm)
-    profile = asyncio.run(
-        extractor.extract(
+    async def _extract() -> Any:
+        from app.services.llm_client import reset_llm_client_cache
+        reset_llm_client_cache()
+        llm = get_llm_client()
+        extractor = EntityExtractor(llm)
+        return await extractor.extract(
             cv_text=payload.get("raw_text", ""),
             detected_language=payload.get("language", "mixed"),
             extraction_notes=extraction_notes,
         )
-    )
+
+    profile = asyncio.run(_extract())
     payload["profile"] = profile.model_dump(mode="json")
     asyncio.run(
         _update_job(
