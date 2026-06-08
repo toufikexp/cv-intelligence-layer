@@ -40,9 +40,6 @@ class CVProfile(Base):
 
     search_doc_external_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     search_ingest_job_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    # Verbatim SkillConnect coded payload (codes, employee{}, etc.) for lossless
-    # echo-back. Never embedded/indexed; the names projection lives in profile_data.
-    skillconnect_profile: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     file_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", index=True)
     callback_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
