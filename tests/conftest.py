@@ -10,44 +10,62 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.models.database import CVProfile
-from app.models.schemas import CandidateProfile, EducationEntry, ExperienceEntry, LanguageEntry
+from app.models.schemas import (
+    CandidateProfile,
+    EducationEntry,
+    EmployeeInfo,
+    ExperienceEntry,
+    LanguageEntry,
+    SkillEntry,
+)
 
 
 @pytest.fixture()
 def fake_candidate_profile() -> CandidateProfile:
     """Factory for a realistic CandidateProfile."""
     return CandidateProfile(
-        name="Jean Dupont",
-        email="jean.dupont@example.com",
-        phone="+213 555 123 456",
-        location="Algiers",
-        current_title="Senior Software Engineer",
         summary="Experienced engineer with 8 years in Python and cloud.",
-        skills=["Python", "FastAPI", "PostgreSQL", "Docker", "AWS"],
-        experience=[
+        employee=EmployeeInfo(
+            firstname="Jean",
+            lastname="Dupont",
+            email="jean.dupont@example.com",
+            phone="+213 555 123 456",
+            function="Senior Software Engineer",
+            region="Algiers",
+        ),
+        skills=[
+            SkillEntry(name="Python", score="ADVANCED"),
+            SkillEntry(name="FastAPI", score="ADVANCED"),
+            SkillEntry(name="PostgreSQL", score="INTERMEDIATE"),
+            SkillEntry(name="Docker", score="INTERMEDIATE"),
+            SkillEntry(name="AWS", score="INTERMEDIATE"),
+        ],
+        experiences=[
             ExperienceEntry(
                 company="Acme Corp",
                 role="Senior Developer",
-                start_date="2020-01",
-                end_date="2024-01",
+                startDate="2020-01",
+                endDate="2024-01",
                 description="Led backend team.",
             ),
             ExperienceEntry(
                 company="StartupX",
                 role="Developer",
-                start_date="2016-06",
-                end_date="2019-12",
+                startDate="2016-06",
+                endDate="2019-12",
             ),
         ],
-        education=[
-            EducationEntry(institution="USTHB", degree="Master", field="Computer Science", year="2016"),
+        educations=[
+            EducationEntry(
+                establishment="USTHB", typeEducation="MASTER",
+                fieldOfStudy="Computer Science", dateGraduation="2016",
+            ),
         ],
         languages=[
-            LanguageEntry(language="French", level="native"),
-            LanguageEntry(language="English", level="fluent"),
+            LanguageEntry(language="French", proficiency="NATIVE"),
+            LanguageEntry(language="English", proficiency="C1"),
         ],
-        certifications=["AWS Solutions Architect"],
-        total_experience_years=8.0,
+        certifications=[],
     )
 
 
@@ -55,14 +73,15 @@ def fake_candidate_profile() -> CandidateProfile:
 def fake_cv_profile(fake_candidate_profile: CandidateProfile) -> CVProfile:
     """Factory for a CVProfile ORM instance (not persisted)."""
     now = datetime.now(timezone.utc)
+    emp = fake_candidate_profile.employee
     return CVProfile(
         cv_id=uuid.uuid4(),
         collection_id=uuid.uuid4(),
         external_id="ext-001",
         file_hash="abc123deadbeef",
-        candidate_name=fake_candidate_profile.name,
-        email=fake_candidate_profile.email,
-        phone=fake_candidate_profile.phone,
+        candidate_name=f"{emp.firstname} {emp.lastname}" if emp else None,
+        email=emp.email if emp else None,
+        phone=emp.phone if emp else None,
         profile_data=fake_candidate_profile.model_dump(mode="json"),
         raw_text="Full CV text here...",
         language="fr",
@@ -99,14 +118,11 @@ def mock_llm_client() -> AsyncMock:
     def _make_response(prompt_key: str = "", **kwargs: Any) -> dict[str, Any]:
         if prompt_key == "cv_entity_extraction":
             return {
-                "name": "Jean Dupont",
-                "email": "jean@example.com",
-                "phone": "0555123456",
-                "location": "Algiers",
-                "current_title": "Developer",
-                "skills": ["Python", "SQL"],
-                "experience": [],
-                "education": [],
+                "summary": "Experienced developer.",
+                "function": "Developer",
+                "skills": [{"name": "Python", "score": "ADVANCED"}, {"name": "SQL", "score": "INTERMEDIATE"}],
+                "experiences": [],
+                "educations": [],
                 "languages": [],
             }
         if prompt_key == "cv_ranking":

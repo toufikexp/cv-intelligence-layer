@@ -77,10 +77,16 @@ class CVSearchService:
             skills = None
             exp_years = None
             if isinstance(profile_data, dict):
-                current_title = profile_data.get("current_title")
-                location = profile_data.get("location")
-                skills = profile_data.get("skills")
-                exp_years = profile_data.get("total_experience_years")
+                emp = profile_data.get("employee") or {}
+                current_title = emp.get("function")
+                location = emp.get("workingSite") or emp.get("region")
+                raw_skills = profile_data.get("skills") or []
+                if isinstance(raw_skills, list):
+                    skills = [
+                        (s.get("name") if isinstance(s, dict) else s)
+                        for s in raw_skills
+                        if (isinstance(s, dict) and s.get("name")) or isinstance(s, str)
+                    ]
             if meta.get("skills") is not None:
                 skills = meta.get("skills")
             if meta.get("experience_years") is not None:

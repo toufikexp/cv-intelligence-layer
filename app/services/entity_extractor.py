@@ -7,7 +7,7 @@ from typing import Any
 
 import spacy
 
-from app.models.schemas import CandidateProfile
+from app.models.schemas import CandidateProfile, EmployeeInfo
 from app.services.llm_client import LLMClient
 from app.utils.metrics import entity_extraction_duration_seconds
 
@@ -40,13 +40,8 @@ _DOB_KEYWORDS_RE = re.compile(
 _CONTACT_BLOCK_CAP = 8
 _HEADER_ZONE_CAP = 8
 _PROSE_LINE_LEN = 80
-# When the contact block yields no name (e.g. OCR merged the header into one
-# long line, emptying the block), widen the name search to this many leading
-# non-empty lines of the full text — still using the strict _looks_like_name.
 _HEADER_NAME_SCAN_LINES = 12
 
-# Section headings mark the end of the contact block. The candidate's
-# name/location/DOB always appear before the first of these.
 _SECTION_HEADER_WORDS = {
     "profil", "profile", "profil professionnel", "professional profile",
     "professional summary", "summary", "résumé", "resume", "objectif",
@@ -71,8 +66,6 @@ _SECTION_KEYWORDS = {
 
 _YEAR_RANGE_RE = re.compile(r"^(?:19|20)\d{2}(?:\s*[-–/]\s*(?:19|20)\d{2})+$")
 
-# Label words spaCy frequently mis-tags as LOC/GPE/PER in contact blocks.
-# They get redacted harmlessly but must never be used as the stored value.
 _PII_LABEL_WORDS = {
     "adresse", "address", "email", "e-mail", "mail", "courriel", "tel",
     "tél", "téléphone", "telephone", "phone", "mobile", "gsm", "fax",
@@ -85,7 +78,6 @@ _spacy_models: dict[str, spacy.Language] = {}
 
 
 def load_spacy_models() -> None:
-    """Load both spaCy NER models into module-level cache. Call once at startup."""
     _spacy_models["fr"] = spacy.load("fr_core_news_sm")
     _spacy_models["en"] = spacy.load("en_core_web_sm")
     logger.info("spaCy NER models loaded (fr + en)")
@@ -108,12 +100,6 @@ def _is_section_header(line: str) -> bool:
 
 
 def _contact_block(text: str) -> str:
-    """Return the CV's contact block: the non-empty lines before the first
-    section heading or long prose line (the summary), capped for safety.
-
-    Scoping NER to this block keeps summary/experience prose out of the
-    entity scan, which otherwise produces false-positive PER/LOC entities.
-    """
     block: list[str] = []
     for line in text.split("\n"):
         if not line.strip():
@@ -143,12 +129,6 @@ def _looks_like_name(line: str) -> bool:
 
 
 def _extract_pii_entities(text: str, language: str) -> dict[str, Any]:
-    """Use spaCy NER on the contact block to find name, location, and DOB.
-
-    Returns the best single value for each field plus the full set of terms
-    to scrub from the text (so e.g. both city and country are redacted, not
-    just whichever entity spaCy happened to list first).
-    """
     block = _contact_block(text)
 
     nlp = _get_spacy_model(language)
@@ -171,20 +151,12 @@ def _extract_pii_entities(text: str, language: str) -> dict[str, Any]:
                 break
 
     name = persons[0] if persons else None
-    if not name:  # NER misses all-caps / mis-tagged names; fall back to a name-like line
+    if not name:
         name = next(
             (line.strip() for line in block.split("\n") if _looks_like_name(line)),
             None,
         )
     if not name:
-        # Safety net for OCR: a merged/garbled contact line can empty the
-        # contact block (which cuts at the first line > _PROSE_LINE_LEN) while
-        # the real name sits on a later header line. Re-scan the header zone —
-        # non-empty lines BEFORE the first section heading, without the length
-        # cutoff — and take the first that strictly looks like a name. This
-        # never reads past a section heading, so experience/skill/title lines
-        # stay out of scope; `_looks_like_name` rejects digits/@/labels and
-        # caps at 4 tokens. Purely local — no LLM.
         header_zone: list[str] = []
         for line in text.split("\n"):
             if not line.strip():
@@ -216,7 +188,6 @@ def _redact_pii(
     location_terms: list[str],
     dob: str | None,
 ) -> str:
-    """Replace all PII tokens with placeholders before sending to LLM."""
     out = text
     for term in person_terms:
         if term and len(term.strip()) >= 2:
@@ -239,36 +210,17 @@ def _first_match(pattern: re.Pattern[str], text: str) -> str | None:
 
 
 def _normalize_phone(raw: str) -> str:
-    """Normalize phone numbers to international format.
-
-    Patterns:
-        Algerian: 05XX XXX XXX → +213 5XX XXX XXX
-        French:   06 XX XX XX XX → +33 6 XX XX XX XX
-        International: already has + prefix → keep as-is
-    """
     digits = re.sub(r"[^\d+]", "", raw)
-    # Already international
     if digits.startswith("+"):
         return raw.strip()
-    # Algerian mobile: 05/06/07 followed by 8 digits
     if re.match(r"^0[567]\d{8}$", digits):
         return f"+213 {digits[1:4]} {digits[4:7]} {digits[7:]}"
-    # French mobile: 06/07 followed by 8 digits
     if re.match(r"^0[67]\d{8}$", digits):
         return f"+33 {digits[1]} {digits[2:4]} {digits[4:6]} {digits[6:8]} {digits[8:]}"
     return raw.strip()
 
 
-def _extract_urls(text: str) -> dict[str, str | None]:
-    urls = _URL_RE.findall(text)
-    linkedin = next((u for u in urls if "linkedin.com" in u.lower()), None)
-    github = next((u for u in urls if "github.com" in u.lower()), None)
-    portfolio = next((u for u in urls if u not in {linkedin, github}), None)
-    return {"linkedin_url": linkedin, "github_url": github, "portfolio_url": portfolio}
-
-
 def _extract_phone(text: str) -> str | None:
-    """Return the first phone-like match that is a real phone (9-15 digits, not a year range)."""
     for m in _PHONE_RE.finditer(text):
         cand = m.group(0).strip()
         digits = re.sub(r"\D", "", cand)
@@ -278,7 +230,6 @@ def _extract_phone(text: str) -> str | None:
 
 
 def _redact_phones(text: str) -> str:
-    """Replace real phone numbers while leaving year ranges untouched."""
     def _repl(m: re.Match[str]) -> str:
         cand = m.group(0).strip()
         digits = re.sub(r"\D", "", cand)
@@ -289,8 +240,6 @@ def _redact_phones(text: str) -> str:
 
 
 def _strip_header_zone(text: str) -> str:
-    """Replace everything before the first section heading (cap 8 lines)
-    with a placeholder, so no header PII reaches the LLM."""
     lines = text.split("\n")
     cut = 0
     seen = 0
@@ -310,57 +259,49 @@ def _strip_header_zone(text: str) -> str:
 
 
 def usable_char_count(text: str) -> int:
-    """Count alphanumeric characters (including accented) for readability gating."""
     return len(re.findall(r"[A-Za-zÀ-ÿ0-9]", text))
 
 
+def _split_name(full_name: str) -> tuple[str, str]:
+    parts = full_name.strip().split()
+    if len(parts) >= 2:
+        return parts[0], " ".join(parts[1:])
+    return full_name.strip(), ""
+
+
 def _normalize_llm_output(data: dict[str, Any]) -> dict[str, Any]:
-    """Map common Gemini output variations to the canonical CandidateProfile shape.
-
-    Gemini doesn't always honor the prompt schema strictly. This function
-    defensively handles the most common variations so downstream Pydantic
-    validation succeeds.
-    """
-    # 1. Flatten contact_info if nested
-    contact = data.pop("contact_info", None) or {}
-    if isinstance(contact, dict):
-        for key in ("name", "email", "phone", "location", "linkedin_url", "github_url", "portfolio_url"):
-            if contact.get(key) and not data.get(key):
-                data[key] = contact[key]
-
-    # 1b. Coerce name: accept dict {first_name, last_name} or {given, family}
-    name = data.get("name")
-    if isinstance(name, dict):
-        parts = [
-            str(name.get("first_name") or name.get("given") or name.get("firstName") or "").strip(),
-            str(name.get("middle_name") or name.get("middle") or "").strip(),
-            str(name.get("last_name") or name.get("family") or name.get("lastName") or "").strip(),
-        ]
-        full = " ".join(p for p in parts if p)
-        data["name"] = full or name.get("full_name") or name.get("name") or ""
-    elif name is not None and not isinstance(name, str):
-        data["name"] = str(name)
-
-    # 2. Flatten skills if dict-of-lists (Gemini often groups by category)
+    """Map common Gemini output variations to the new SkillConnect shape."""
+    # skills: accept dict-of-lists, list of strings, or list of dicts
     skills = data.get("skills")
     if isinstance(skills, dict):
-        flat: list[str] = []
+        flat: list[dict[str, Any]] = []
         for v in skills.values():
             if isinstance(v, list):
-                flat.extend(str(s).strip() for s in v if s)
-            elif isinstance(v, str) and v.strip():
-                flat.append(v.strip())
+                for s in v:
+                    if isinstance(s, str) and s.strip():
+                        flat.append({"name": s.strip(), "score": None})
+                    elif isinstance(s, dict):
+                        flat.append(s)
         data["skills"] = flat
     elif isinstance(skills, list):
-        data["skills"] = [str(s).strip() for s in skills if s]
+        normalized_skills: list[dict[str, Any]] = []
+        for s in skills:
+            if isinstance(s, str) and s.strip():
+                normalized_skills.append({"name": s.strip(), "score": None})
+            elif isinstance(s, dict):
+                if "name" not in s and "skill" in s:
+                    s["name"] = s.pop("skill")
+                normalized_skills.append(s)
+        data["skills"] = normalized_skills
     elif skills is None:
         data["skills"] = []
 
-    # 3. Normalize each experience entry
-    experience = data.get("experience") or []
-    if isinstance(experience, list):
+    # experiences: normalize field name aliases
+    exp_key = "experiences" if "experiences" in data else "experience"
+    experiences = data.pop(exp_key, None) or []
+    if isinstance(experiences, list):
         normalized_exp: list[dict[str, Any]] = []
-        for exp in experience:
+        for exp in experiences:
             if not isinstance(exp, dict):
                 continue
             if "role" not in exp and "title" in exp:
@@ -369,113 +310,118 @@ def _normalize_llm_output(data: dict[str, Any]) -> dict[str, Any]:
                 exp["role"] = exp.pop("position")
             if "company" not in exp and "employer" in exp:
                 exp["company"] = exp.pop("employer")
-            if not exp.get("company"):
-                exp["company"] = exp.get("role") or ""
-            if not exp.get("role"):
-                exp["role"] = exp.get("company") or ""
-            if not exp["company"] and not exp["role"]:
-                continue
+            if "startDate" not in exp and "start_date" in exp:
+                exp["startDate"] = exp.pop("start_date")
+            if "endDate" not in exp and "end_date" in exp:
+                exp["endDate"] = exp.pop("end_date")
             desc = exp.get("description")
             if isinstance(desc, list):
                 exp["description"] = "\n".join(str(d).strip() for d in desc if d)
             elif isinstance(desc, dict):
                 exp["description"] = "\n".join(f"{k}: {v}" for k, v in desc.items() if v)
             normalized_exp.append(exp)
-        data["experience"] = normalized_exp
+        data["experiences"] = normalized_exp
+    else:
+        data["experiences"] = []
 
-    # 4. Normalize education entries
-    education = data.get("education") or []
-    if isinstance(education, list):
+    # educations: normalize field name aliases
+    edu_key = "educations" if "educations" in data else "education"
+    educations = data.pop(edu_key, None) or []
+    if isinstance(educations, list):
         normalized_edu: list[dict[str, Any]] = []
-        for edu in education:
+        for edu in educations:
             if not isinstance(edu, dict):
                 continue
-            if "field" not in edu and "field_of_study" in edu:
-                edu["field"] = edu.pop("field_of_study")
-            if "institution" not in edu and "school" in edu:
-                edu["institution"] = edu.pop("school")
-            if "institution" not in edu and "university" in edu:
-                edu["institution"] = edu.pop("university")
-            if not edu.get("institution"):
-                edu["institution"] = edu.get("degree") or edu.get("field") or ""
-            if not edu["institution"]:
+            if "establishment" not in edu:
+                edu["establishment"] = (
+                    edu.pop("institution", None)
+                    or edu.pop("school", None)
+                    or edu.pop("university", None)
+                    or ""
+                )
+            if "fieldOfStudy" not in edu and "field_of_study" in edu:
+                edu["fieldOfStudy"] = edu.pop("field_of_study")
+            if "fieldOfStudy" not in edu and "field" in edu:
+                edu["fieldOfStudy"] = edu.pop("field")
+            if "typeEducation" not in edu and "degree" in edu:
+                edu["typeEducation"] = edu.pop("degree")
+            if "dateGraduation" not in edu and "year" in edu:
+                edu["dateGraduation"] = edu.pop("year")
+            if not edu.get("establishment"):
                 continue
             normalized_edu.append(edu)
-        data["education"] = normalized_edu
+        data["educations"] = normalized_edu
+    else:
+        data["educations"] = []
 
-    # 5. Normalize languages: accept list[str] or list[dict] with varying keys
+    # languages: accept list[str] or list[dict] with varying keys
     languages = data.get("languages") or []
     if isinstance(languages, list):
-        normalized_langs: list[dict[str, str]] = []
-        level_map = {
-            "native": "native", "maternelle": "native", "natif": "native",
-            "fluent": "fluent", "courant": "fluent", "bilingue": "fluent",
-            "advanced": "advanced", "avance": "advanced", "avancé": "advanced",
-            "intermediate": "intermediate", "intermediaire": "intermediate", "intermédiaire": "intermediate",
-            "beginner": "beginner", "debutant": "beginner", "débutant": "beginner", "basic": "beginner",
+        proficiency_map = {
+            "native": "NATIVE", "maternelle": "NATIVE", "natif": "NATIVE",
+            "fluent": "C1", "courant": "C1", "bilingue": "C2",
+            "advanced": "B2", "avance": "B2", "avancé": "B2",
+            "intermediate": "B1", "intermediaire": "B1", "intermédiaire": "B1",
+            "beginner": "A1", "debutant": "A1", "débutant": "A1", "basic": "A1",
         }
+        valid_cefr = {"A1", "A2", "B1", "B2", "C1", "C2", "NATIVE"}
+        normalized_langs: list[dict[str, Any]] = []
         for lang in languages:
             if isinstance(lang, str):
-                # "Anglais (Courant)" or "English - Fluent"
-                import re as _re
-                m = _re.match(r"^([^(\-–]+)[\s(\-–]+([^)]+)\)?$", lang.strip())
+                m = re.match(r"^([^(\-–]+)[\s(\-–]+([^)]+)\)?$", lang.strip())
                 if m:
                     name = m.group(1).strip()
-                    level_raw = m.group(2).strip().lower()
-                    level = level_map.get(level_raw, "intermediate")
-                    normalized_langs.append({"language": name, "level": level})
+                    prof_raw = m.group(2).strip().upper()
+                    prof = prof_raw if prof_raw in valid_cefr else proficiency_map.get(m.group(2).strip().lower(), "B1")
+                    normalized_langs.append({"language": name, "proficiency": prof})
                 else:
-                    normalized_langs.append({"language": lang.strip(), "level": "intermediate"})
+                    normalized_langs.append({"language": lang.strip(), "proficiency": "B1"})
             elif isinstance(lang, dict):
                 name = lang.get("language") or lang.get("name") or ""
-                level_raw = str(lang.get("level") or lang.get("proficiency") or "intermediate").strip().lower()
-                level = level_map.get(level_raw, "intermediate") if level_raw not in level_map.values() else level_raw
+                raw = str(lang.get("proficiency") or lang.get("level") or "B1").strip()
+                prof = raw.upper() if raw.upper() in valid_cefr else proficiency_map.get(raw.lower(), "B1")
                 if name:
-                    normalized_langs.append({"language": str(name), "level": level})
+                    normalized_langs.append({"language": str(name), "proficiency": prof})
         data["languages"] = normalized_langs
+    else:
+        data["languages"] = []
 
-    # 6. Certifications: coerce list[dict] to list[str]
+    # certifications: accept list[str] or list[dict]
     certs = data.get("certifications") or []
     if isinstance(certs, list):
-        flat_certs: list[str] = []
+        normalized_certs: list[dict[str, Any]] = []
         for c in certs:
             if isinstance(c, str) and c.strip():
-                flat_certs.append(c.strip())
+                normalized_certs.append({"title": c.strip()})
             elif isinstance(c, dict):
-                label = c.get("name") or c.get("title") or c.get("certification")
-                if label:
-                    flat_certs.append(str(label))
-        data["certifications"] = flat_certs
+                if "title" not in c:
+                    c["title"] = c.get("name") or c.get("certification") or ""
+                if c.get("title"):
+                    normalized_certs.append(c)
+        data["certifications"] = normalized_certs
+    else:
+        data["certifications"] = []
 
-    # 6b. Achievements: accept list[str] or list[dict] with varying keys
+    # achievements: accept list[str] or list[dict]
     achievements = data.get("achievements") or []
     if isinstance(achievements, list):
-        normalized_ach: list[dict[str, str | None]] = []
+        normalized_ach: list[dict[str, Any]] = []
         for item in achievements:
             if isinstance(item, str) and item.strip():
-                normalized_ach.append({"title": item.strip(), "year": None, "description": None})
+                normalized_ach.append({"title": item.strip()})
             elif isinstance(item, dict):
-                title = item.get("title") or item.get("name") or item.get("project") or item.get("realization")
+                title = item.get("title") or item.get("name") or item.get("project")
                 if not title:
                     continue
-                year = item.get("year") or item.get("date") or item.get("when")
-                desc = item.get("description") or item.get("details") or item.get("summary")
-                if isinstance(desc, list):
-                    desc = "\n".join(str(d).strip() for d in desc if d)
-                normalized_ach.append(
-                    {
-                        "title": str(title).strip(),
-                        "year": str(year).strip() if year is not None else None,
-                        "description": str(desc).strip() if desc else None,
-                    }
-                )
+                normalized_ach.append({
+                    "title": str(title).strip(),
+                    "description": str(item.get("description") or "").strip() or None,
+                    "startDate": item.get("startDate") or item.get("start_date"),
+                    "endDate": item.get("endDate") or item.get("end_date"),
+                })
         data["achievements"] = normalized_ach
     else:
         data["achievements"] = []
-
-    # 7. Ensure name exists (Pydantic requires it)
-    if not data.get("name"):
-        data["name"] = "Unknown"
 
     return data
 
@@ -488,13 +434,10 @@ class EntityExtractor:
 
     async def extract(self, *, cv_text: str, detected_language: str, extraction_notes: str) -> CandidateProfile:
         start = time.perf_counter()
-        # Extract PII locally from the ORIGINAL text (before any stripping)
         regex_email = _first_match(_EMAIL_RE, cv_text)
         regex_phone = _extract_phone(cv_text)
-        urls = _extract_urls(cv_text)
         pii = _extract_pii_entities(cv_text, detected_language)
 
-        # Hard PII guarantee: strip header zone + defense-in-depth body redaction
         redacted_text = _redact_pii(
             _strip_header_zone(cv_text),
             pii.get("person_terms", []),
@@ -511,24 +454,32 @@ class EntityExtractor:
             },
         )
 
-        # Defensive normalization of Gemini output variations
         data = _normalize_llm_output(data)
 
-        # Personal fields: spaCy/regex only — never use Gemini's guesses
-        data["name"] = pii.get("name") or "Unknown"
-        data["location"] = pii.get("location")
-        if regex_email:
-            data["email"] = regex_email
-        if regex_phone:
-            data["phone"] = _normalize_phone(regex_phone)
-        elif not data.get("phone"):
-            data["phone"] = None
-        else:
-            data["phone"] = None
-        for k, v in urls.items():
-            if v:
-                data[k] = v
+        # Build the employee block from local PII extraction (never from Gemini)
+        name = pii.get("name") or "Unknown"
+        firstname, lastname = _split_name(name)
+        phone = _normalize_phone(regex_phone) if regex_phone else None
+
+        employee = EmployeeInfo(
+            firstname=firstname or None,
+            lastname=lastname or None,
+            email=regex_email,
+            phone=phone,
+            function=data.pop("function", None) or data.pop("current_title", None),
+        )
+        # Location from spaCy maps to region/workingSite
+        location = pii.get("location")
+        if location:
+            employee.region = location
+
+        data["employee"] = employee.model_dump(mode="json")
+
+        # Remove old-schema PII fields that Gemini might have output
+        for key in ("name", "email", "phone", "location", "current_title",
+                     "linkedin_url", "github_url", "portfolio_url",
+                     "total_experience_years"):
+            data.pop(key, None)
 
         entity_extraction_duration_seconds.observe(time.perf_counter() - start)
         return CandidateProfile.model_validate(data, strict=False)
-

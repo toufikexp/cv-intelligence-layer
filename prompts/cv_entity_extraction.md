@@ -13,53 +13,54 @@ very end, after the schema and rules below.
 Return a JSON object matching this exact schema:
 
 {
-  "name": "Full name of the candidate (string, required)",
-  "email": "Email address (string or null)",
-  "phone": "Phone number in international format (string or null)",
-  "location": "City, Country or region (string or null)",
-  "current_title": "Most recent job title (string or null)",
   "summary": "Professional summary or objective, 1-3 sentences (string or null)",
-  "linkedin_url": "LinkedIn profile URL (string or null)",
-  "github_url": "GitHub profile URL (string or null)",
-  "portfolio_url": "Portfolio or personal website URL (string or null)",
+  "function": "Most recent job title / function (string or null)",
   "skills": [
-    "Normalized skill name (e.g., 'Python', 'Project Management', 'SQL')"
-  ],
-  "experience": [
     {
-      "company": "Company name (string)",
-      "role": "Job title (string)",
-      "start_date": "YYYY-MM or YYYY (string)",
-      "end_date": "YYYY-MM, YYYY, or 'present' (string)",
-      "description": "Key responsibilities and achievements, 1-3 sentences (string or null)",
-      "location": "City, Country (string or null)"
+      "name": "Normalized skill name (e.g., 'Python', 'Project Management', 'SQL')",
+      "score": "Proficiency level: BASIC | INTERMEDIATE | ADVANCED | EXPERT | MASTER"
     }
   ],
-  "education": [
+  "experiences": [
     {
-      "institution": "University or school name (string)",
-      "degree": "Degree type: Licence, Master, Doctorat, Bachelor, MBA, etc. (string)",
-      "field": "Field of study (string or null)",
-      "year": "Graduation year YYYY (string or null)"
+      "role": "Job title (string)",
+      "company": "Company name (string)",
+      "startDate": "YYYY-MM-DD or YYYY-MM or YYYY (string)",
+      "endDate": "YYYY-MM-DD, YYYY-MM, YYYY, or 'present' (string)",
+      "description": "Key responsibilities and achievements, 1-3 sentences (string or null)"
+    }
+  ],
+  "educations": [
+    {
+      "establishment": "University or school name (string — pick from the predefined list below when a clear match exists; otherwise use the exact name from the CV)",
+      "fieldOfStudy": "Field of study (string or null)",
+      "typeEducation": "LICENCE | MASTER | DOCTORAT | BACHELOR | MBA | INGENIEUR | BTS | DUT | FORMATION_PROFESSIONNELLE",
+      "dateGraduation": "Graduation year YYYY (string or null)"
     }
   ],
   "languages": [
     {
       "language": "Language name in English (string)",
-      "level": "native | fluent | advanced | intermediate | beginner (string)"
+      "proficiency": "A1 | A2 | B1 | B2 | C1 | C2 | NATIVE"
     }
   ],
   "certifications": [
-    "Certification name and issuing body (string)"
+    {
+      "title": "Certification name (string)",
+      "issuer": "Issuing body (string or null)",
+      "issueDate": "YYYY-MM-DD or YYYY (string or null)",
+      "expiryDate": "YYYY-MM-DD or YYYY (string or null)",
+      "description": "Brief description (string or null)"
+    }
   ],
   "achievements": [
     {
       "title": "Short name of the project or realization (string, required)",
-      "year": "YYYY or null (string or null)",
-      "description": "1-2 sentence description highlighting scope and measurable impact (string or null)"
+      "description": "1-2 sentence description highlighting scope and measurable impact (string or null)",
+      "startDate": "YYYY-MM-DD or YYYY (string or null)",
+      "endDate": "YYYY-MM-DD or YYYY (string or null)"
     }
-  ],
-  "total_experience_years": "Estimated total years of professional experience (number or null)"
+  ]
 }
 
 Rules:
@@ -67,15 +68,21 @@ Rules:
 2. Normalize skill names: capitalize properly (e.g., "python" → "Python", "machine learning" → "Machine Learning").
 3. For French CVs: translate degree names to their French equivalents (Licence, Master, Ingénieur, BTS, DUT). Keep company names and proper nouns in their original language.
 4. For experience entries: order from most recent to oldest.
-5. For phone numbers: normalize to international format (e.g., +213 XXX XXX XXX for Algerian, +33 X XX XX XX XX for French).
-6. Estimate total_experience_years by summing non-overlapping employment periods. If dates are ambiguous, provide a best estimate.
-7. Achievements are **discrete, named projects/realizations** that stand on their own — typically found under headings like "Projets", "Réalisations", "Key Projects", "Achievements", "Projets notables". Do NOT duplicate generic job responsibilities already captured in `experience[].description`. If the CV has no such section and no clearly-named project, return an empty array.
-8. Return ONLY the JSON object. No markdown backticks, no explanation text.
-9. Personal information (name, email, phone, location, URLs, date of birth) has been redacted for privacy. Placeholders like [REDACTED_NAME], [REDACTED_EMAIL], [REDACTED_PHONE], [REDACTED_LOCATION], [REDACTED_URL], [REDACTED_DOB] may appear in the text. Set the corresponding output fields to null. Focus on extracting current_title, summary, skills, experience, education, languages, certifications, achievements, and total_experience_years.
-10. Skills vocabulary: a controlled list of canonical skill names is provided below. When a skill you extract clearly matches one of these names, output the canonical name **exactly** as listed (this keeps skills consistent across candidates). If an extracted skill is not in the list, keep your own normalized name — never invent or force a match.
+5. Estimate function from the most recent role/title.
+6. Achievements are **discrete, named projects/realizations** that stand on their own — typically found under headings like "Projets", "Réalisations", "Key Projects", "Achievements", "Projets notables". Do NOT duplicate generic job responsibilities already captured in `experiences[].description`. If the CV has no such section and no clearly-named project, return an empty array.
+7. Return ONLY the JSON object. No markdown backticks, no explanation text.
+8. Personal information (name, email, phone, location, URLs, date of birth) has been redacted for privacy. Placeholders like [REDACTED_NAME], [REDACTED_EMAIL], [REDACTED_PHONE], [REDACTED_LOCATION], [REDACTED_URL], [REDACTED_DOB] may appear in the text. Do NOT try to extract personal information — focus on function, summary, skills, experiences, educations, languages, certifications, and achievements.
+9. Skills vocabulary: a controlled list of canonical skill names is provided below. When a skill you extract clearly matches one of these names, output the canonical name **exactly** as listed. If an extracted skill is not in the list, keep your own normalized name — never invent or force a match.
+10. Skill score: for each skill, assess proficiency from the CV context using ONLY these values: BASIC, INTERMEDIATE, ADVANCED, EXPERT, MASTER. Base your assessment on evidence in the CV (years of use, project depth, certifications). If uncertain, use INTERMEDIATE.
+11. Language proficiency: assess using ONLY these CEFR values: A1, A2, B1, B2, C1, C2, NATIVE. Map common descriptions: "natif/maternelle" → NATIVE, "courant/fluent" → C1, "avancé/advanced" → B2, "intermédiaire/intermediate" → B1, "débutant/beginner/basic" → A1.
+12. Education type: use ONLY these values: LICENCE, MASTER, DOCTORAT, BACHELOR, MBA, INGENIEUR, BTS, DUT, FORMATION_PROFESSIONNELLE. Map common terms: "BSc/BA" → BACHELOR, "MSc/MA" → MASTER, "PhD" → DOCTORAT, "Diplôme d'ingénieur" → INGENIEUR.
+13. Establishment: pick from the predefined establishments list below when the CV's institution clearly matches one. If no match, use the institution name exactly as written in the CV.
 
 Controlled skill vocabulary (canonical names; use exact spelling when a match is clear):
 {skills_catalog}
+
+Predefined establishments (use exact name when the CV's institution matches):
+{establishments_list}
 
 <<<CV_INPUT>>>
 **CV Language**: {detected_language}
@@ -92,10 +99,10 @@ Controlled skill vocabulary (canonical names; use exact spelling when a match is
 
 **Input (excerpt)**:
 ```
-AHMED BENALI
+[REDACTED_NAME]
 Ingénieur Data Senior
-Alger, Algérie
-ahmed.benali@email.com | +213 555 123 456
+[REDACTED_LOCATION]
+[REDACTED_EMAIL] | [REDACTED_PHONE]
 
 EXPÉRIENCE PROFESSIONNELLE
 
@@ -125,67 +132,67 @@ Arabe (natif), Français (courant), Anglais (intermédiaire)
 **Expected Output**:
 ```json
 {
-  "name": "Ahmed Benali",
-  "email": "ahmed.benali@email.com",
-  "phone": "+213 555 123 456",
-  "location": "Alger, Algérie",
-  "current_title": "Ingénieur Data Senior",
   "summary": "Senior Data Engineer with experience in ETL pipelines, customer 360 datamarts, and BI reporting in the telecom sector.",
-  "linkedin_url": null,
-  "github_url": null,
-  "portfolio_url": null,
-  "skills": ["Python", "SQL", "Apache Spark", "Power BI", "PostgreSQL", "ETL", "Machine Learning"],
-  "experience": [
+  "function": "Data Engineer Senior",
+  "skills": [
+    { "name": "Python", "score": "ADVANCED" },
+    { "name": "SQL", "score": "ADVANCED" },
+    { "name": "Apache Spark", "score": "INTERMEDIATE" },
+    { "name": "Power BI", "score": "INTERMEDIATE" },
+    { "name": "PostgreSQL", "score": "ADVANCED" },
+    { "name": "ETL", "score": "ADVANCED" },
+    { "name": "Machine Learning", "score": "INTERMEDIATE" }
+  ],
+  "experiences": [
     {
-      "company": "Ooredoo Algérie",
       "role": "Data Engineer Senior",
-      "start_date": "2022-01",
-      "end_date": "present",
-      "description": "Designed ETL pipelines with Python and Apache Spark. Built a customer 360 datamart with PostgreSQL.",
-      "location": null
+      "company": "Ooredoo Algérie",
+      "startDate": "2022-01",
+      "endDate": "present",
+      "description": "Designed ETL pipelines with Python and Apache Spark. Built a customer 360 datamart with PostgreSQL."
     },
     {
-      "company": "Djezzy",
       "role": "Analyste BI",
-      "start_date": "2019-03",
-      "end_date": "2021-12",
-      "description": "Created Power BI dashboards for sales tracking. Analyzed network performance.",
-      "location": null
+      "company": "Djezzy",
+      "startDate": "2019-03",
+      "endDate": "2021-12",
+      "description": "Created Power BI dashboards for sales tracking. Analyzed network performance."
     }
   ],
-  "education": [
+  "educations": [
     {
-      "institution": "Université USTHB",
-      "degree": "Master",
-      "field": "Informatique",
-      "year": "2018"
+      "establishment": "Université des Sciences et de la Technologie Houari Boumediene (USTHB)",
+      "fieldOfStudy": "Informatique",
+      "typeEducation": "MASTER",
+      "dateGraduation": "2018"
     },
     {
-      "institution": "Université USTHB",
-      "degree": "Licence",
-      "field": "Mathématiques et Informatique",
-      "year": "2016"
+      "establishment": "Université des Sciences et de la Technologie Houari Boumediene (USTHB)",
+      "fieldOfStudy": "Mathématiques et Informatique",
+      "typeEducation": "LICENCE",
+      "dateGraduation": "2016"
     }
   ],
   "languages": [
-    { "language": "Arabic", "level": "native" },
-    { "language": "French", "level": "fluent" },
-    { "language": "English", "level": "intermediate" }
+    { "language": "Arabic", "proficiency": "NATIVE" },
+    { "language": "French", "proficiency": "C1" },
+    { "language": "English", "proficiency": "B1" }
   ],
   "certifications": [],
   "achievements": [
     {
       "title": "Migration Data Lake vers AWS",
-      "year": "2023",
-      "description": "Pilotage de la migration complète de l'infrastructure data vers AWS S3 + Glue + Athena. Réduction des coûts opérationnels de 35% et amélioration des temps de traitement de 60%."
+      "description": "Pilotage de la migration complète de l'infrastructure data vers AWS S3 + Glue + Athena. Réduction des coûts opérationnels de 35% et amélioration des temps de traitement de 60%.",
+      "startDate": "2023",
+      "endDate": null
     },
     {
       "title": "Implémentation du modèle ML Churn Prediction",
-      "year": "2022",
-      "description": "Développement et déploiement d'un modèle de prédiction du churn client avec une précision de 87%."
+      "description": "Développement et déploiement d'un modèle de prédiction du churn client avec une précision de 87%.",
+      "startDate": "2022",
+      "endDate": null
     }
-  ],
-  "total_experience_years": 6
+  ]
 }
 ```
 
@@ -193,10 +200,10 @@ Arabe (natif), Français (courant), Anglais (intermédiaire)
 
 **Input (excerpt)**:
 ```
-Sarah Johnson
+[REDACTED_NAME]
 Full Stack Developer
-London, UK | sarah.j@proton.me | +44 7911 123456
-linkedin.com/in/sarahjohnson | github.com/sarahj
+[REDACTED_LOCATION] | [REDACTED_EMAIL] | [REDACTED_PHONE]
+[REDACTED_URL] | [REDACTED_URL]
 
 PROFESSIONAL EXPERIENCE
 
@@ -221,52 +228,59 @@ AWS Solutions Architect Associate (2023)
 **Expected Output**:
 ```json
 {
-  "name": "Sarah Johnson",
-  "email": "sarah.j@proton.me",
-  "phone": "+44 7911 123456",
-  "location": "London, UK",
-  "current_title": "Senior Developer",
   "summary": "Full Stack Developer with 5+ years of experience in React, Node.js, and microservices architecture.",
-  "linkedin_url": "https://linkedin.com/in/sarahjohnson",
-  "github_url": "https://github.com/sarahj",
-  "portfolio_url": null,
-  "skills": ["JavaScript", "TypeScript", "React", "Node.js", "PostgreSQL", "Docker", "AWS", "CI/CD"],
-  "experience": [
+  "function": "Senior Developer",
+  "skills": [
+    { "name": "JavaScript", "score": "ADVANCED" },
+    { "name": "TypeScript", "score": "ADVANCED" },
+    { "name": "React", "score": "ADVANCED" },
+    { "name": "Node.js", "score": "ADVANCED" },
+    { "name": "PostgreSQL", "score": "INTERMEDIATE" },
+    { "name": "Docker", "score": "INTERMEDIATE" },
+    { "name": "AWS", "score": "INTERMEDIATE" },
+    { "name": "CI/CD", "score": "INTERMEDIATE" }
+  ],
+  "experiences": [
     {
-      "company": "TechCorp Ltd",
       "role": "Senior Developer",
-      "start_date": "2021-06",
-      "end_date": "present",
-      "description": "Led a team of 4 developers building microservices with Node.js and React. Reduced API response time by 40% through caching optimization.",
-      "location": null
+      "company": "TechCorp Ltd",
+      "startDate": "2021-06",
+      "endDate": "present",
+      "description": "Led a team of 4 developers building microservices with Node.js and React. Reduced API response time by 40% through caching optimization."
     },
     {
-      "company": "StartupXYZ",
       "role": "Junior Developer",
-      "start_date": "2019-09",
-      "end_date": "2021-05",
-      "description": "Built customer-facing features using React and TypeScript. Implemented CI/CD pipelines with GitHub Actions.",
-      "location": null
+      "company": "StartupXYZ",
+      "startDate": "2019-09",
+      "endDate": "2021-05",
+      "description": "Built customer-facing features using React and TypeScript. Implemented CI/CD pipelines with GitHub Actions."
     }
   ],
-  "education": [
+  "educations": [
     {
-      "institution": "University of Manchester",
-      "degree": "Bachelor",
-      "field": "Computer Science",
-      "year": "2019"
+      "establishment": "University of Manchester",
+      "fieldOfStudy": "Computer Science",
+      "typeEducation": "BACHELOR",
+      "dateGraduation": "2019"
     }
   ],
   "languages": [],
-  "certifications": ["AWS Solutions Architect Associate (2023)"],
-  "achievements": [],
-  "total_experience_years": 5
+  "certifications": [
+    {
+      "title": "AWS Solutions Architect Associate",
+      "issuer": "Amazon Web Services",
+      "issueDate": "2023",
+      "expiryDate": null,
+      "description": null
+    }
+  ],
+  "achievements": []
 }
 ```
 
 ## Usage Notes
 
 - The `{detected_language}` placeholder should be filled with the output of fasttext language detection (e.g., "fr", "en", "mixed").
-- The `{extraction_notes}` placeholder can include: "Text extracted via OCR — may contain artifacts" or "Clean text extraction from PDF" to help the LLM handle noisy input.
+- The `{extraction_notes}` placeholder can include: "Text extracted via OCR — may contain artifacts" or "Clean text extraction from document" to help the LLM handle noisy input.
 - Always validate the LLM output against the `CandidateProfile` Pydantic schema. Use `model_validate()` with `strict=False` to handle minor deviations.
 - If the LLM returns invalid JSON, retry once with a shorter prompt that omits examples.

@@ -30,7 +30,7 @@ from app.services.document_processor import DocumentProcessor
 from app.services.entity_extractor import EntityExtractor, usable_char_count
 from app.services.indexing_bridge import build_search_document, build_synthetic_text
 from app.services.llm_client import get_llm_client
-from app.services.skill_resolver import coded_payload_to_profile, profile_to_coded_projection
+from app.services.skill_resolver import enrich_profile
 from app.services.ocr_service import ocr_pdf_pages
 from app.services.search_client import get_ingest_search_client, get_search_client
 from app.tasks.ingestion import start_cv_ingestion
@@ -44,7 +44,6 @@ ProfileStatus = Literal["pending", "extracting", "indexing", "ready", "failed", 
 
 
 def _narrow_profile_status(status: str) -> ProfileStatus:
-    """Map internal pipeline statuses to OpenAPI CVProfileResponse status enum."""
     if status in ("ocr_processing", "entity_extraction"):
         return "extracting"
     if status in ("pending", "extracting", "indexing", "ready", "failed", "index_failed"):
@@ -65,7 +64,6 @@ def _stage_to_cv_status(stage: str | None) -> CVStatusEnum:
 
 
 def _cv_to_profile_response(cv: CVProfile) -> CVProfileResponse:
-    """Shared serialization for both cv_id and external_id GET handlers."""
     profile: CandidateProfile | None = None
     if cv.profile_data:
         profile = CandidateProfile.model_validate(cv.profile_data, strict=False)
@@ -77,14 +75,12 @@ def _cv_to_profile_response(cv: CVProfile) -> CVProfileResponse:
         language=cv.language,
         extraction_method=cv.extraction_method,
         profile=profile,
-        skillconnect_profile=cv.skillconnect_profile,
         created_at=cv.created_at,
         updated_at=cv.updated_at,
     )
 
 
 def _build_status_response(cv: CVProfile, job: CVProcessingJob | None) -> CVStatusResponse:
-    """Shared status projection for both cv_id and external_id status handlers."""
     if cv.status == "ready":
         api_status: CVStatusEnum = "ready"
     elif cv.status in ("failed", "index_failed"):
@@ -111,7 +107,6 @@ async def _delete_cv_and_index(
     cv_service: CVService,
     cv: CVProfile,
 ) -> None:
-    """Shared teardown: remove the Search document then drop the DB row."""
     external_id = cv.search_doc_external_id or cv.file_hash
     client = get_ingest_search_client()
     try:
@@ -133,18 +128,9 @@ async def _replace_cv_file(
     callback_url: str | None,
     response: Response,
 ) -> CVUploadResponse:
-    """Validate a replacement file and re-run the ingestion pipeline in place.
-
-    Returns a ``CVUploadResponse`` with the existing ``cv_id`` and a new
-    ``job_id``. Sets ``response.status_code`` to 202 on re-ingest, or 200
-    with ``no_change=True`` when the uploaded bytes match the stored file
-    hash.
-    """
     path, new_hash = await validate_and_persist_upload(file)
 
     if new_hash == cv.file_hash:
-        # Bytes identical to what's already indexed — nothing to do.
-        # Clean up the temp file we just wrote.
         try:
             path.unlink(missing_ok=True)
         except OSError:
@@ -159,8 +145,6 @@ async def _replace_cv_file(
             no_change=True,
         )
 
-    # Would violate uq_cv_profiles_collection_file_hash on commit — fail fast
-    # with a clean 409 naming the conflicting cv_id.
     await cv_service.check_file_hash_conflict(
         db=db,
         collection_id=cv.collection_id,
@@ -196,6 +180,10 @@ async def _replace_cv_file(
     )
 
 
+def _employee_email(profile: CandidateProfile) -> str | None:
+    return profile.employee.email if profile.employee else None
+
+
 async def _apply_profile_patch(
     *,
     db: AsyncSession,
@@ -203,15 +191,6 @@ async def _apply_profile_patch(
     cv: CVProfile,
     patch: CandidateProfilePatch,
 ) -> CVProfileResponse:
-    """Merge a partial profile into ``cv.profile_data`` and re-index synchronously.
-
-    PATCH semantics:
-    - Scalars are replaced when set (``exclude_unset=True``).
-    - List fields are replaced wholesale when set — omit to keep, pass ``[]``
-      to clear.
-    - Re-validated through the strict ``CandidateProfile`` model so callers
-      can't drop required fields or violate Literal enums.
-    """
     if cv.status not in ("ready", "index_failed") or cv.profile_data is None:
         raise HTTPException(
             status_code=409,
@@ -225,24 +204,17 @@ async def _apply_profile_patch(
         )
 
     patch_dict = patch.model_dump(mode="json", exclude_unset=True)
-    coded = patch_dict.pop("skillconnect_profile", None)
-    if coded is not None:
-        # SkillConnect update: rebuild the names profile wholesale from the
-        # coded payload (skill codes → names) and store the payload verbatim.
-        merged = coded_payload_to_profile(coded, catalog_store)
-    else:
-        merged_dict = dict(cv.profile_data)
-        merged_dict.update(patch_dict)
-        # Re-validate through the strict model so bad patches 422 here, not at write.
-        merged = CandidateProfile.model_validate(merged_dict)
+    merged_dict = dict(cv.profile_data)
+    merged_dict.update(patch_dict)
+    merged = CandidateProfile.model_validate(merged_dict)
 
-    # Collision check: email is unique per collection. Only check if it
-    # actually changed — otherwise we'd flag the CV's own current email.
-    if merged.email and merged.email != cv.email:
+    email = _employee_email(merged)
+    old_email = cv.email
+    if email and email != old_email:
         await cv_service.check_email_conflict(
             db=db,
             collection_id=cv.collection_id,
-            email=merged.email,
+            email=email,
             exclude_cv_id=cv.cv_id,
         )
 
@@ -250,10 +222,8 @@ async def _apply_profile_patch(
         db=db,
         cv=cv,
         merged_profile=merged,
-        skillconnect_profile=coded,
     )
 
-    # Re-index synchronously. No LLM, no OCR — a single Search POST.
     doc = build_search_document(
         external_id=cv.external_id,
         profile=merged,
@@ -275,8 +245,6 @@ async def _apply_profile_patch(
                 upsert=True,
             )
         except Exception as exc:
-            # Surface the failure in the CV row so it's observable, then
-            # report upstream failure to the caller.
             await cv_service.mark_index_failed(db=db, cv=cv)
             raise HTTPException(
                 status_code=502,
@@ -327,14 +295,7 @@ async def extract_cv(
     file: UploadFile = File(...),
     _: str = Depends(get_api_key),
 ) -> CVExtractionResponse:
-    """Stateless CV extraction for the preview-edit-confirm flow.
-
-    Runs validation, text extraction, OCR (if needed), language detection,
-    and entity extraction synchronously. Persists nothing — no DB row, no
-    Semantic Search document. The Hiring Platform shows the result, the
-    user edits, and on confirm calls ``POST /api/v1/candidates`` with the
-    (possibly edited) profile.
-    """
+    """Stateless CV extraction for the preview-edit-confirm flow."""
     path, file_hash = await validate_and_persist_upload(file)
     mime = file.content_type or ""
 
@@ -346,7 +307,6 @@ async def extract_cv(
 
         if extracted.needs_ocr and mime == "application/pdf":
             settings = get_settings()
-            # ocr_pdf_pages is sync + CPU-bound — offload from the event loop.
             text, method = await asyncio.to_thread(
                 ocr_pdf_pages, path, dpi=settings.ocr_dpi, min_chars=50
             )
@@ -366,9 +326,6 @@ async def extract_cv(
 
         language = await detect_language(raw_text)
 
-        # Same notes string the Celery extract_entities task passes, so the
-        # LLM prompt behavior is identical between the async pipeline and
-        # this stateless endpoint.
         extraction_notes = (
             "Text extracted via OCR — may contain artifacts"
             if "ocr" in extraction_method
@@ -391,16 +348,16 @@ async def extract_cv(
                 },
             ) from exc
 
+        enrich_profile(profile, catalog_store)
+
         return CVExtractionResponse(
             profile=profile,
-            skillconnect_profile=profile_to_coded_projection(profile, catalog_store),
             language=language,
             extraction_method=extraction_method,
             file_hash=file_hash,
             raw_text=raw_text,
         )
     finally:
-        # Stateless endpoint — never keep the temp file around.
         try:
             path.unlink(missing_ok=True)
         except OSError:
@@ -414,19 +371,9 @@ async def create_cv_from_json(
     db: AsyncSession = Depends(get_db),
     cv_service: CVService = Depends(get_cv_service),
 ) -> CVProfileResponse:
-    """Create a candidate profile from structured JSON (no CV document).
-
-    Builds synthetic text from the profile, hashes it for deduplication,
-    detects language, submits to Semantic Search for async indexing, and
-    returns the profile with status ``indexing``.  The ingestion webhook
-    flips the status to ``ready`` once embedding completes — same flow as
-    the upload/Celery path.
-    """
-    # Accept either the internal profile or a SkillConnect coded payload. When
-    # only the coded payload is given, derive the names profile via the catalog
-    # resolver (skill codes → names); the coded payload is stored verbatim for
-    # echo-back and never pushed to Semantic Search.
-    profile = req.profile or coded_payload_to_profile(req.skillconnect_profile or {}, catalog_store)
+    """Create a candidate profile from structured JSON (no CV document)."""
+    profile = req.profile
+    enrich_profile(profile, catalog_store)
 
     synthetic_text = build_synthetic_text(profile)
     file_hash = hashlib.sha256(synthetic_text.encode()).hexdigest()
@@ -441,7 +388,6 @@ async def create_cv_from_json(
         raw_text=synthetic_text,
         language=lang,
         callback_url=req.callback_url,
-        skillconnect_profile=req.skillconnect_profile,
     )
 
     doc = build_search_document(
@@ -529,7 +475,6 @@ async def put_cv(
     db: AsyncSession = Depends(get_db),
     cv_service: CVService = Depends(get_cv_service),
 ) -> CVUploadResponse:
-    """Replace the CV file for an existing candidate, re-running the full pipeline."""
     cv = await cv_service.get_cv(db=db, cv_id=cv_id)
     return await _replace_cv_file(
         db=db,
@@ -549,7 +494,6 @@ async def patch_cv(
     db: AsyncSession = Depends(get_db),
     cv_service: CVService = Depends(get_cv_service),
 ) -> CVProfileResponse:
-    """Partially update the structured profile fields; re-indexes synchronously."""
     cv = await cv_service.get_cv(db=db, cv_id=cv_id)
     return await _apply_profile_patch(
         db=db,
@@ -560,9 +504,7 @@ async def patch_cv(
 
 
 # ---------------------------------------------------------------------------
-# External-id routes — let the Hiring Platform address CVs by its own business
-# key `(collection_id, external_id)` instead of the CV layer's internal cv_id.
-# These mirror the cv_id routes exactly; only the lookup step differs.
+# External-id routes
 # ---------------------------------------------------------------------------
 
 
@@ -634,7 +576,6 @@ async def put_cv_by_external_id(
     db: AsyncSession = Depends(get_db),
     cv_service: CVService = Depends(get_cv_service),
 ) -> CVUploadResponse:
-    """Replace the CV file addressed by the HP's business key."""
     cv = await cv_service.get_cv_by_external_id(
         db=db, collection_id=collection_id, external_id=external_id
     )
@@ -660,7 +601,6 @@ async def patch_cv_by_external_id(
     db: AsyncSession = Depends(get_db),
     cv_service: CVService = Depends(get_cv_service),
 ) -> CVProfileResponse:
-    """Partially update the profile addressed by the HP's business key."""
     cv = await cv_service.get_cv_by_external_id(
         db=db, collection_id=collection_id, external_id=external_id
     )

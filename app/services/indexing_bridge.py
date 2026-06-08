@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 from app.models.schemas import CandidateProfile
@@ -13,6 +14,33 @@ class SearchDocument:
     metadata: dict[str, Any]
 
 
+def _estimate_experience_years(profile: CandidateProfile) -> int:
+    """Derive total experience years from experiences date spans."""
+    total_months = 0
+    for e in profile.experiences:
+        start = e.startDate
+        end = e.endDate
+        if not start:
+            continue
+        try:
+            sy = int(start[:4])
+            sm = int(start[5:7]) if len(start) >= 7 else 1
+        except (ValueError, IndexError):
+            continue
+        if end and end.lower() != "present":
+            try:
+                ey = int(end[:4])
+                em = int(end[5:7]) if len(end) >= 7 else 12
+            except (ValueError, IndexError):
+                ey, em = date.today().year, date.today().month
+        else:
+            ey, em = date.today().year, date.today().month
+        months = (ey - sy) * 12 + (em - sm)
+        if months > 0:
+            total_months += months
+    return max(total_months // 12, 0)
+
+
 def build_synthetic_text(profile: CandidateProfile) -> str:
     """Build a plain-text representation of a CandidateProfile.
 
@@ -22,56 +50,63 @@ def build_synthetic_text(profile: CandidateProfile) -> str:
     """
     parts: list[str] = []
 
-    if profile.name:
-        parts.append(f"Name: {profile.name}")
-    if profile.current_title:
-        parts.append(f"Title: {profile.current_title}")
-    if profile.location:
-        parts.append(f"Location: {profile.location}")
-    if profile.email:
-        parts.append(f"Email: {profile.email}")
-    if profile.phone:
-        parts.append(f"Phone: {profile.phone}")
+    emp = profile.employee
+    if emp:
+        name = f"{emp.firstname or ''} {emp.lastname or ''}".strip()
+        if name:
+            parts.append(f"Name: {name}")
+        if emp.function:
+            parts.append(f"Title: {emp.function}")
+        if emp.region:
+            parts.append(f"Location: {emp.region}")
+        if emp.email:
+            parts.append(f"Email: {emp.email}")
+        if emp.phone:
+            parts.append(f"Phone: {emp.phone}")
 
     if profile.summary:
         parts.append(f"\nSummary:\n{profile.summary}")
 
-    if profile.skills:
-        parts.append(f"\nSkills: {', '.join(profile.skills)}")
+    skill_names = [s.name for s in profile.skills if s.name]
+    if skill_names:
+        parts.append(f"\nSkills: {', '.join(skill_names)}")
 
-    if profile.experience:
+    if profile.experiences:
         lines = ["Experience:"]
-        for e in profile.experience:
-            line = f"- {e.role} @ {e.company}"
-            if e.start_date or e.end_date:
-                line += f" ({e.start_date or ''} - {e.end_date or ''})"
+        for e in profile.experiences:
+            line = f"- {e.role or ''} @ {e.company or ''}"
+            if e.startDate or e.endDate:
+                line += f" ({e.startDate or ''} - {e.endDate or ''})"
             if e.description:
                 line += f": {e.description}"
             lines.append(line)
         parts.append("\n" + "\n".join(lines))
 
-    if profile.education:
+    if profile.educations:
         lines = ["Education:"]
-        for e in profile.education:
-            line = f"- {e.degree or ''} {e.field or ''} — {e.institution}"
-            if e.year:
-                line += f" ({e.year})"
+        for e in profile.educations:
+            line = f"- {e.typeEducation or ''} {e.fieldOfStudy or ''} — {e.establishment or ''}"
+            if e.dateGraduation:
+                line += f" ({e.dateGraduation})"
             lines.append(line)
         parts.append("\n" + "\n".join(lines))
 
     if profile.languages:
-        langs = ", ".join(f"{l.language} ({l.level})" for l in profile.languages)
+        langs = ", ".join(
+            f"{lg.language or ''} ({lg.proficiency or ''})" for lg in profile.languages
+        )
         parts.append(f"\nLanguages: {langs}")
 
-    if profile.certifications:
-        parts.append(f"\nCertifications: {', '.join(profile.certifications)}")
+    cert_titles = [c.title for c in profile.certifications if c.title]
+    if cert_titles:
+        parts.append(f"\nCertifications: {', '.join(cert_titles)}")
 
     if profile.achievements:
         lines = ["Achievements:"]
         for a in profile.achievements:
-            line = f"- {a.title}"
-            if a.year:
-                line += f" ({a.year})"
+            line = f"- {a.title or ''}"
+            if a.startDate:
+                line += f" ({a.startDate})"
             if a.description:
                 line += f": {a.description}"
             lines.append(line)
@@ -89,30 +124,31 @@ def build_search_document(
 ) -> SearchDocument:
     """Transform a CandidateProfile + raw CV text into a Semantic Search document.
 
-    Args:
-        external_id: Caller-supplied stable document identifier.
-        profile: Extracted CandidateProfile (used only for metadata derivation).
-        raw_text: Raw CV text extracted by the document pipeline. This becomes
-            the document ``content`` so semantic recall matches against the
-            full CV body rather than a short formatted projection.
-        language: Detected language code.
+    SS gets NAMES and text only — never codes.
     """
-
-    edu = profile.education or []
-
     content = (raw_text or "").strip()
     if not content:
-        # Defensive: Semantic Search rejects empty content. Fall back to the
-        # least-bad projection of the profile so the document is still
-        # indexable even when text extraction produced nothing.
-        content = (profile.summary or profile.name or "").strip()
+        content = (profile.summary or "").strip()
+        if not content and profile.employee:
+            name = f"{profile.employee.firstname or ''} {profile.employee.lastname or ''}".strip()
+            content = name or ""
+
+    skill_names = [s.name for s in profile.skills if s.name]
+    experience_years = _estimate_experience_years(profile)
+
+    edu = profile.educations
+    edu_level = edu[0].typeEducation.lower() if edu and edu[0].typeEducation else None
+
+    location = None
+    if profile.employee:
+        location = profile.employee.workingSite or profile.employee.region
 
     metadata: dict[str, Any] = {
-        "skills": profile.skills or [],
-        "experience_years": int(profile.total_experience_years or 0),
+        "skills": skill_names,
+        "experience_years": experience_years,
         "language": language or "mixed",
-        "location": profile.location,
-        "education_level": (edu[0].degree.lower() if edu and edu[0].degree else None),
+        "location": location,
+        "education_level": edu_level,
     }
     return SearchDocument(
         external_id=external_id,

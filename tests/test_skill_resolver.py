@@ -1,14 +1,17 @@
-"""Tests for the SkillConnect coded payload <-> internal profile resolver."""
+"""Tests for the enrich_profile resolver (fills codes ↔ names in place)."""
 
 from __future__ import annotations
 
-from app.models.schemas import CandidateProfile, LanguageEntry
+from app.models.schemas import CandidateProfile, LanguageEntry, SkillEntry
 from app.services.catalog_store import CatalogStore, normalize
-from app.services.skill_resolver import coded_payload_to_profile, profile_to_coded_projection
+from app.services.skill_resolver import enrich_profile
 
 
-def _store(skills: dict[str, str], estabs: dict[str, str] | None = None,
-           langs: dict[str, str] | None = None) -> CatalogStore:
+def _store(
+    skills: dict[str, str],
+    estabs: dict[str, str] | None = None,
+    langs: dict[str, str] | None = None,
+) -> CatalogStore:
     """Build a store seeded with code->name maps (bypassing the DB load)."""
     s = CatalogStore()
     s._skill_code_to_name = dict(skills)
@@ -22,65 +25,69 @@ def _store(skills: dict[str, str], estabs: dict[str, str] | None = None,
     return s
 
 
-def test_coded_payload_resolves_skill_codes_to_names() -> None:
+def test_enrich_fills_name_from_skill_code() -> None:
     store = _store({"SK1": "Python", "SK2": "SQL"})
-    payload = {
-        "employee": {"firstname": "Amina", "lastname": "Bensaid", "email": "a@x.com",
-                     "function": "Data Engineer"},
-        "skills": [{"skill": "SK1"}, {"skill": "SK2"}, {"skill": "UNKNOWN"}],
-        "summary": "Engineer.",
-    }
-    profile = coded_payload_to_profile(payload, store)
-    assert profile.name == "Amina Bensaid"
-    assert profile.email == "a@x.com"
-    assert profile.current_title == "Data Engineer"
-    # Unknown code is dropped from the engine view (never fabricated).
-    assert profile.skills == ["Python", "SQL"]
-
-
-def test_coded_payload_maps_education_and_languages() -> None:
-    store = _store({}, estabs={"ES1": "USTHB"})
-    payload = {
-        "employee": {"firstname": "Sam", "lastname": "Lee"},
-        "educations": [{"establishment": "ES1", "typeEducation": "Master", "fieldOfStudy": "CS",
-                        "dateGraduation": "2018"}],
-        "languages": [{"language": "English", "proficiency": "C2"},
-                      {"language": "French", "proficiency": "B1"}],
-    }
-    profile = coded_payload_to_profile(payload, store)
-    assert profile.education[0].institution == "USTHB"
-    assert profile.education[0].degree == "Master"
-    # CEFR maps onto the coarse internal scale.
-    assert profile.languages[0] == LanguageEntry(language="English", level="fluent")
-    assert profile.languages[1] == LanguageEntry(language="French", level="intermediate")
-
-
-def test_coded_payload_missing_name_falls_back_to_unknown() -> None:
-    profile = coded_payload_to_profile({"skills": []}, _store({}))
-    assert profile.name == "Unknown"
-    assert profile.skills == []
-
-
-def test_projection_matches_names_to_codes_unmatched_null() -> None:
-    store = _store({"SK1": "Python"}, langs={"LG1": "English"})
     profile = CandidateProfile(
-        name="Amina",
-        skills=["Python", "Rust"],
-        languages=[LanguageEntry(language="English", level="native")],
+        skills=[
+            SkillEntry(skill="SK1"),
+            SkillEntry(skill="SK2"),
+            SkillEntry(skill="UNKNOWN"),
+        ],
     )
-    proj = profile_to_coded_projection(profile, store)
-    by_name = {s["name"]: s["skill"] for s in proj["skills"]}
-    assert by_name["Python"] == "SK1"
-    assert by_name["Rust"] is None  # unmatched -> null code, name preserved
-    assert proj["languages"][0]["languageCode"] == "LG1"
-    assert proj["languages"][0]["proficiency"] == "NATIVE"
+    enrich_profile(profile, store)
+    assert profile.skills[0].name == "Python"
+    assert profile.skills[1].name == "SQL"
+    assert profile.skills[2].name is None  # unmatched → None
 
 
-def test_roundtrip_codes_preserved_through_resolver() -> None:
+def test_enrich_fills_code_from_skill_name() -> None:
     store = _store({"SK1": "Python", "SK2": "SQL"})
-    payload = {"employee": {"firstname": "A", "lastname": "B"},
-               "skills": [{"skill": "SK1"}, {"skill": "SK2"}]}
-    profile = coded_payload_to_profile(payload, store)
-    proj = profile_to_coded_projection(profile, store)
-    codes = sorted(s["skill"] for s in proj["skills"])
+    profile = CandidateProfile(
+        skills=[
+            SkillEntry(name="Python"),
+            SkillEntry(name="Rust"),
+        ],
+    )
+    enrich_profile(profile, store)
+    assert profile.skills[0].skill == "SK1"
+    assert profile.skills[1].skill is None  # unmatched → None
+
+
+def test_enrich_fills_language_code() -> None:
+    store = _store({}, langs={"LG1": "English", "LG2": "French"})
+    profile = CandidateProfile(
+        languages=[
+            LanguageEntry(language="English", proficiency="C2"),
+            LanguageEntry(language="Arabic", proficiency="NATIVE"),
+        ],
+    )
+    enrich_profile(profile, store)
+    assert profile.languages[0].languageCode == "LG1"
+    assert profile.languages[1].languageCode is None  # unmatched
+
+
+def test_enrich_does_not_overwrite_existing() -> None:
+    store = _store({"SK1": "Python"})
+    profile = CandidateProfile(
+        skills=[SkillEntry(skill="SK1", name="AlreadySet")],
+    )
+    enrich_profile(profile, store)
+    assert profile.skills[0].name == "AlreadySet"
+
+
+def test_enrich_empty_profile_no_error() -> None:
+    store = _store({})
+    profile = CandidateProfile()
+    enrich_profile(profile, store)
+    assert profile.skills == []
+    assert profile.languages == []
+
+
+def test_roundtrip_codes_preserved() -> None:
+    store = _store({"SK1": "Python", "SK2": "SQL"})
+    profile = CandidateProfile(
+        skills=[SkillEntry(name="Python"), SkillEntry(name="SQL")],
+    )
+    enrich_profile(profile, store)
+    codes = sorted(s.skill for s in profile.skills if s.skill)
     assert codes == ["SK1", "SK2"]

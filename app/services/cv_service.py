@@ -2,14 +2,19 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
-
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import CVProcessingJob, CVProfile
-from app.models.schemas import CandidateProfile
+from app.models.schemas import CandidateProfile, EmployeeInfo
+
+
+def _employee_full_name(emp: EmployeeInfo | None) -> str | None:
+    if not emp:
+        return None
+    parts = [emp.firstname or "", emp.lastname or ""]
+    return " ".join(p for p in parts if p).strip() or None
 
 
 class CVService:
@@ -87,7 +92,6 @@ class CVService:
         raw_text: str,
         language: str | None,
         callback_url: str | None = None,
-        skillconnect_profile: dict[str, Any] | None = None,
     ) -> tuple[CVProfile, CVProcessingJob]:
         """Create a CV row from structured JSON (no document upload).
 
@@ -121,6 +125,11 @@ class CVService:
                 detail={"detail": str(found.cv_id), "code": "DUPLICATE_FILE"},
             )
 
+        emp = profile.employee
+        cand_name = _employee_full_name(emp) if emp else None
+        email = emp.email if emp else None
+        phone = emp.phone if emp else None
+
         now = datetime.utcnow()
         cv = CVProfile(
             cv_id=uuid.uuid4(),
@@ -133,11 +142,10 @@ class CVService:
             raw_text=raw_text,
             language=language,
             extraction_method="json_input",
-            candidate_name=profile.name,
-            email=profile.email,
-            phone=profile.phone,
+            candidate_name=cand_name,
+            email=email,
+            phone=phone,
             search_doc_external_id=external_id,
-            skillconnect_profile=skillconnect_profile,
             created_at=now,
             updated_at=now,
         )
@@ -270,23 +278,13 @@ class CVService:
         db: AsyncSession,
         cv: CVProfile,
         merged_profile: CandidateProfile,
-        skillconnect_profile: dict[str, Any] | None = None,
     ) -> CVProfile:
-        """Write a merged CandidateProfile back to the CV row (PATCH path).
-
-        The caller is responsible for merging the patch into the existing
-        ``profile_data`` and for checking unique-constraint conflicts (e.g.
-        email) before invoking this. This method only handles the write:
-        ``profile_data`` plus denormalized ``candidate_name`` / ``email`` /
-        ``phone`` columns, and the ``updated_at`` bump. When a SkillConnect
-        coded payload is supplied it is stored verbatim for echo-back.
-        """
+        """Write a merged CandidateProfile back to the CV row (PATCH path)."""
+        emp = merged_profile.employee
         cv.profile_data = merged_profile.model_dump(mode="json")
-        cv.candidate_name = merged_profile.name
-        cv.email = merged_profile.email
-        cv.phone = merged_profile.phone
-        if skillconnect_profile is not None:
-            cv.skillconnect_profile = skillconnect_profile
+        cv.candidate_name = _employee_full_name(emp)
+        cv.email = emp.email if emp else None
+        cv.phone = emp.phone if emp else None
         cv.updated_at = datetime.utcnow()
         await db.commit()
         await db.refresh(cv)

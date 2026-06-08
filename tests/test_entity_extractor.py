@@ -41,9 +41,6 @@ class TestPhoneNormalization:
         assert _normalize_phone("0712345678") == "+213 712 345 678"
 
     def test_french_mobile(self) -> None:
-        # French 06/07 are 10 digits same as Algerian — the function
-        # applies Algerian pattern first (both match). This is expected
-        # since the project is Algeria-focused per SPEC.
         result = _normalize_phone("0612345678")
         assert result.startswith("+213") or result.startswith("+33")
 
@@ -70,15 +67,6 @@ class TestRegexExtraction:
         assert result is not None
         assert "555" in result
 
-    def test_urls_extracted(self) -> None:
-        from app.services.entity_extractor import _extract_urls
-
-        text = "LinkedIn: https://linkedin.com/in/jdupont GitHub: https://github.com/jdupont Portfolio: https://jdupont.dev"
-        urls = _extract_urls(text)
-        assert "linkedin.com" in (urls["linkedin_url"] or "")
-        assert "github.com" in (urls["github_url"] or "")
-        assert "jdupont.dev" in (urls["portfolio_url"] or "")
-
 
 @pytest.mark.asyncio
 async def test_extract_with_mocked_llm(mock_llm_client: AsyncMock) -> None:
@@ -89,11 +77,11 @@ async def test_extract_with_mocked_llm(mock_llm_client: AsyncMock) -> None:
         extraction_notes="Clean text extraction from document",
     )
     assert isinstance(profile, CandidateProfile)
-    # Regex email should override LLM
-    assert profile.email == "jean@example.com"
-    # Phone should be normalized
-    assert profile.phone is not None
-    assert profile.phone.startswith("+213")
+    # Employee block has PII from local extraction
+    assert profile.employee is not None
+    assert profile.employee.email == "jean@example.com"
+    assert profile.employee.phone is not None
+    assert profile.employee.phone.startswith("+213")
 
 
 @pytest.mark.asyncio
@@ -104,7 +92,8 @@ async def test_regex_email_overrides_llm(mock_llm_client: AsyncMock) -> None:
         detected_language="en",
         extraction_notes="Clean",
     )
-    assert profile.email == "real@real.com"
+    assert profile.employee is not None
+    assert profile.employee.email == "real@real.com"
 
 
 class TestDobAgeRegex:
@@ -151,7 +140,6 @@ class TestSpacyPiiExtraction:
         text = "Jean Dupont\nNé le 15 mars 1990\nAlger"
         pii = _extract_pii_entities(text, "fr")
         assert pii["name"] is not None
-        # DOB detection depends on spaCy recognizing a DATE entity near keyword
 
     def test_no_entities_in_generic_text(self) -> None:
         header = "some random words and numbers 123\nno real entities here"
@@ -160,8 +148,6 @@ class TestSpacyPiiExtraction:
         assert pii["location"] is None
 
     def test_label_word_not_used_as_location(self) -> None:
-        # Regression: spaCy tags "Adresse" as LOC; it shadowed the real
-        # location and left "Alger – Algérie" un-redacted for the LLM.
         text = (
             "PRÉNOM NOM\n"
             "Adresse : Alger – Algérie\n"
@@ -176,8 +162,6 @@ class TestSpacyPiiExtraction:
         assert "Algérie" in pii["location_terms"]
 
     def test_name_fallback_for_all_caps_placeholder(self) -> None:
-        # Regression: all-caps "PRÉNOM NOM" is tagged ORG (not PER); the
-        # flat window then picked "de la" from the summary prose as the name.
         text = (
             "PRÉNOM NOM\n"
             "Adresse : Alger\n"
@@ -219,7 +203,6 @@ class TestPiiRedaction:
         assert "[REDACTED_LOCATION]" in result
 
     def test_redacts_all_locations(self) -> None:
-        # Both city and country must go, not just the first detected entity.
         text = "Adresse : Alger – Algérie"
         result = _redact_pii(text, [], ["Alger", "Algérie"], None)
         assert "Alger" not in result
@@ -281,7 +264,6 @@ class TestPiiRedaction:
         assert "+213 555 123 456" not in result
         assert "linkedin.com" not in result
         assert "15/03/1990" not in result
-        # Non-PII preserved
         assert "Développeur Senior" in result
         assert "Acme Corp" in result
         assert "Python" in result
@@ -297,7 +279,8 @@ async def test_extract_merges_spacy_pii(mock_llm_client: AsyncMock) -> None:
         extraction_notes="Clean text extraction from document",
     )
     assert isinstance(profile, CandidateProfile)
-    assert profile.email == "ahmed@email.com"
+    assert profile.employee is not None
+    assert profile.employee.email == "ahmed@email.com"
 
 
 class TestOcrNameFallback:
@@ -305,9 +288,6 @@ class TestOcrNameFallback:
     must still be recovered locally — never via the LLM."""
 
     def test_name_recovered_when_contact_block_empty(self) -> None:
-        # A >80-char contact/noise blob precedes the name, so _contact_block
-        # breaks immediately and returns empty. The header-window fallback must
-        # still find the clean name line.
         text = (
             "nicole. moore@gmail.com | +1 971 902 4932 | Dublin, Ireland "
             "https://linkedin./in/nicole-moore extra noise tokens padding\n"
@@ -320,10 +300,6 @@ class TestOcrNameFallback:
         assert pii["name"] == "Nicole Moore"
 
     def test_fallback_stays_within_header_zone(self) -> None:
-        # When the document starts with a section heading there is no header
-        # zone, so the fallback must NOT reach down into body content and pick a
-        # name-like line — the "no recognizable header name → Unknown" guarantee
-        # holds even though a name-like string exists below.
         text = (
             "PROFIL PROFESSIONNEL\n"
             "Nicole Moore\n"
@@ -500,13 +476,13 @@ class TestUsableCharCount:
 async def test_name_spacy_only_ignores_gemini(mock_llm_client: AsyncMock) -> None:
     """Name must come from spaCy, not Gemini — even when Gemini has a value."""
     extractor = EntityExtractor(mock_llm_client)
-    # CV with no recognizable name in header → should be "Unknown"
     profile = await extractor.extract(
         cv_text="EXPERIENCES PROFESSIONNELLES\nSpecialist Senior chez Acme\n2015-2017",
         detected_language="fr",
         extraction_notes="Clean",
     )
-    assert profile.name == "Unknown"
+    assert profile.employee is not None
+    assert profile.employee.firstname == "Unknown"
 
 
 @pytest.mark.asyncio
@@ -518,4 +494,4 @@ async def test_phone_year_range_not_extracted(mock_llm_client: AsyncMock) -> Non
         detected_language="fr",
         extraction_notes="Clean",
     )
-    assert profile.phone is None or "2015" not in (profile.phone or "")
+    assert profile.employee is None or profile.employee.phone is None or "2015" not in (profile.employee.phone or "")

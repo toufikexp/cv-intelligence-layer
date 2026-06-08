@@ -43,7 +43,7 @@ async def refresh_catalog(*, fetch_api: bool) -> bool:
                             changed,
                         )
                     except Exception as exc:
-                        logger.warning("SkillConnect catalog refresh failed (serving last-known): %s", exc)
+                        logger.warning("SkillConnect catalog refresh failed (serving last-known): %r", exc)
                     finally:
                         await client.aclose()
     finally:

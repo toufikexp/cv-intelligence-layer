@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import AnyHttpUrl, BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 
 class ErrorResponse(BaseModel):
@@ -18,115 +18,143 @@ CVStatusEnum = Literal[
 ]
 
 
+# ---------------------------------------------------------------------------
+# SkillConnect-native sub-schemas
+# ---------------------------------------------------------------------------
+
+class ManagerInfo(BaseModel):
+    matricule: str | None = None
+    firstname: str | None = None
+    lastname: str | None = None
+    email: str | None = None
+
+
+class EmployeeInfo(BaseModel):
+    matricule: str | None = None
+    firstname: str | None = None
+    lastname: str | None = None
+    birthDate: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    function: str | None = None
+    businessUnit: str | None = None
+    direction: str | None = None
+    service: str | None = None
+    department: str | None = None
+    region: str | None = None
+    recrutementDate: str | None = None
+    workingSite: str | None = None
+    seniority: str | None = None
+    manager: ManagerInfo | None = None
+    active: bool | None = None
+
+
+class SkillEntry(BaseModel):
+    skill: str | None = None
+    score: str | None = None
+    name: str | None = None
+
+
 class ExperienceEntry(BaseModel):
-    company: str
-    role: str
-    start_date: str | None = None
-    end_date: str | None = None
+    role: str | None = None
+    company: str | None = None
+    startDate: str | None = None
+    endDate: str | None = None
     description: str | None = None
-    location: str | None = None
+    internal: bool | None = None
 
 
 class EducationEntry(BaseModel):
-    institution: str
-    degree: str | None = None
-    field: str | None = None
-    year: str | None = None
-
-
-LanguageLevel = Literal["native", "fluent", "advanced", "intermediate", "beginner"]
+    establishment: str | None = None
+    fieldOfStudy: str | None = None
+    typeEducation: str | None = None
+    dateGraduation: str | None = None
 
 
 class LanguageEntry(BaseModel):
-    language: str
-    level: LanguageLevel
+    language: str | None = None
+    proficiency: str | None = None
+    languageCode: str | None = None
 
 
-class AchievementEntry(BaseModel):
-    """A discrete project, realization, or notable accomplishment.
-
-    Distinct from ``ExperienceEntry``: an achievement is a named deliverable
-    (e.g. "Migration Data Lake vers AWS") rather than a job tenure.
-    """
-
-    title: str
-    year: str | None = None
+class CertificationEntry(BaseModel):
+    title: str | None = None
+    issuer: str | None = None
+    issueDate: str | None = None
+    expiryDate: str | None = None
+    link: str | None = None
+    filePath: str | None = None
     description: str | None = None
 
 
+class AchievementEntry(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    startDate: str | None = None
+    endDate: str | None = None
+
+
+class TagEntry(BaseModel):
+    tag: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# ONE CandidateProfile — the SkillConnect-native model used everywhere.
+# ---------------------------------------------------------------------------
+
 class CandidateProfile(BaseModel):
-    name: str
-    email: str | None = None
-    phone: str | None = None
-    location: str | None = None
-    current_title: str | None = None
+    externalId: str | None = None
+    photoPath: str | None = None
+    cvPath: str | None = None
+    rating: float | None = None
+    completenessScore: float | None = None
+    role: str | None = None
+    lastConnection: str | None = None
+    visible: bool | None = None
     summary: str | None = None
-    linkedin_url: AnyHttpUrl | None = None
-    github_url: AnyHttpUrl | None = None
-    portfolio_url: AnyHttpUrl | None = None
-    skills: list[str] = Field(default_factory=list)
-    experience: list[ExperienceEntry] = Field(default_factory=list)
-    education: list[EducationEntry] = Field(default_factory=list)
+
+    employee: EmployeeInfo | None = None
+    tags: list[TagEntry] = Field(default_factory=list)
+
+    skills: list[SkillEntry] = Field(default_factory=list)
+    experiences: list[ExperienceEntry] = Field(default_factory=list)
+    educations: list[EducationEntry] = Field(default_factory=list)
     languages: list[LanguageEntry] = Field(default_factory=list)
-    certifications: list[str] = Field(default_factory=list)
+    certifications: list[CertificationEntry] = Field(default_factory=list)
     achievements: list[AchievementEntry] = Field(default_factory=list)
-    total_experience_years: float | None = None
 
 
 class CandidateProfilePatch(BaseModel):
-    """Partial CandidateProfile for PATCH requests.
-
-    Every field is optional. Scalars are replaced when provided; list fields
-    are replaced wholesale (not merged element-wise). Unknown fields are
-    rejected so typos surface as 422 rather than being silently dropped.
-    Use ``model_dump(exclude_unset=True)`` at the merge site so omitted
-    fields leave the stored value untouched.
-    """
-
-    name: str | None = None
-    email: str | None = None
-    phone: str | None = None
-    location: str | None = None
-    current_title: str | None = None
+    externalId: str | None = None
+    photoPath: str | None = None
+    cvPath: str | None = None
+    rating: float | None = None
+    completenessScore: float | None = None
+    role: str | None = None
+    lastConnection: str | None = None
+    visible: bool | None = None
     summary: str | None = None
-    linkedin_url: AnyHttpUrl | None = None
-    github_url: AnyHttpUrl | None = None
-    portfolio_url: AnyHttpUrl | None = None
-    skills: list[str] | None = None
-    experience: list[ExperienceEntry] | None = None
-    education: list[EducationEntry] | None = None
+
+    employee: EmployeeInfo | None = None
+    tags: list[TagEntry] | None = None
+
+    skills: list[SkillEntry] | None = None
+    experiences: list[ExperienceEntry] | None = None
+    educations: list[EducationEntry] | None = None
     languages: list[LanguageEntry] | None = None
-    certifications: list[str] | None = None
+    certifications: list[CertificationEntry] | None = None
     achievements: list[AchievementEntry] | None = None
-    total_experience_years: float | None = None
-    # SkillConnect coded update: when present, the profile is rebuilt wholesale
-    # from this payload (via the catalog resolver) and stored verbatim.
-    skillconnect_profile: dict[str, Any] | None = None
 
     model_config = {"extra": "forbid"}
 
 
 class CandidateCreateRequest(BaseModel):
-    """Create a candidate profile from structured JSON (no CV document).
-
-    Accepts either the internal ``profile`` (names) or a SkillConnect
-    ``skillconnect_profile`` (coded payload). When only the coded payload is
-    given, the internal profile is derived from it via the catalog resolver.
-    """
-
     collection_id: uuid.UUID
     external_id: str = Field(min_length=1, max_length=255)
-    profile: CandidateProfile | None = None
-    skillconnect_profile: dict[str, Any] | None = None
+    profile: CandidateProfile
     callback_url: str | None = None
 
     model_config = {"extra": "forbid"}
-
-    @model_validator(mode="after")
-    def _require_one_source(self) -> "CandidateCreateRequest":
-        if self.profile is None and self.skillconnect_profile is None:
-            raise ValueError("either 'profile' or 'skillconnect_profile' is required")
-        return self
 
 
 class CVUploadResponse(BaseModel):
@@ -150,7 +178,6 @@ class CVProfileResponse(BaseModel):
     language: str | None = None
     extraction_method: str | None = None
     profile: CandidateProfile | None = None
-    skillconnect_profile: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime | None = None
 
@@ -166,16 +193,7 @@ class CVStatusResponse(BaseModel):
 
 
 class CVExtractionResponse(BaseModel):
-    """Stateless extraction result for the preview-edit-confirm flow.
-
-    Returned by ``POST /api/v1/candidates/extract``. No DB row is written
-    and no Semantic Search document is indexed — the caller is expected to
-    follow up with ``POST /api/v1/candidates`` (JSON-create) once the user
-    confirms the extracted profile.
-    """
-
     profile: CandidateProfile
-    skillconnect_profile: dict[str, Any] | None = None
     language: str | None = None
     extraction_method: str
     file_hash: str
@@ -340,8 +358,6 @@ class IngestedDocumentResult(BaseModel):
 
 
 class IngestionWebhookPayload(BaseModel):
-    """Incoming webhook from Semantic Search after document ingest completes."""
-
     event: str
     job_id: uuid.UUID
     collection_id: uuid.UUID
@@ -354,11 +370,8 @@ class IngestionWebhookPayload(BaseModel):
 
 
 class HPCallbackPayload(BaseModel):
-    """Outgoing webhook to Hiring Platform when CV processing finishes."""
-
     external_id: str | None = None
     file_hash: str | None = None
     status: Literal["ready", "index_failed"]
     error: str | None = None
     completed_at: datetime
-

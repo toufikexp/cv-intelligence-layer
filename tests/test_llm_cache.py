@@ -19,8 +19,16 @@ from app.services.catalog_store import catalog_store
 from app.services.llm_client import _CACHE_SPLIT_MARKER, LLMClient
 
 _PROMPTS = Path(__file__).resolve().parents[1] / "prompts"
-_VALID_JSON = json.dumps({"name": "X", "skills": ["Python"], "experience": [], "education": [],
-                          "languages": [], "certifications": [], "achievements": []})
+_VALID_JSON = json.dumps({
+    "summary": "Experienced developer.",
+    "function": "Developer",
+    "skills": [{"name": "Python", "score": "ADVANCED"}],
+    "experiences": [],
+    "educations": [],
+    "languages": [],
+    "certifications": [],
+    "achievements": [],
+})
 
 
 def _gen_response(text: str = _VALID_JSON) -> MagicMock:
@@ -66,10 +74,8 @@ async def test_cache_created_once_and_reused() -> None:
     await _extract(client)
     await _extract(client)
 
-    # Cache built once, reused on the second call.
     assert gemini.aio.caches.create.await_count == 1
     assert gemini.aio.models.generate_content.await_count == 2
-    # Generation used the cached handle and a marker-free tail.
     _, kwargs = gemini.aio.models.generate_content.call_args
     assert kwargs["config"].cached_content == "cachedContents/abc"
     assert _CACHE_SPLIT_MARKER not in kwargs["contents"]
@@ -94,8 +100,7 @@ async def test_cache_create_failure_falls_back_to_uncached() -> None:
 
     result = await _extract(client)
 
-    assert result["skills"] == ["Python"]
-    # Fell back to a single uncached generate call with the full prompt, no cache handle.
+    assert result["skills"] == [{"name": "Python", "score": "ADVANCED"}]
     assert gemini.aio.models.generate_content.await_count == 1
     _, kwargs = gemini.aio.models.generate_content.call_args
     assert kwargs["config"].cached_content is None

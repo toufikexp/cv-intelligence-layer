@@ -85,6 +85,11 @@ class RankingEngine:
                 return None
             profile = CandidateProfile.model_validate(cv.profile_data, strict=False)
 
+            emp = profile.employee
+            cand_name = f"{emp.firstname or ''} {emp.lastname or ''}".strip() if emp else ""
+            from app.services.indexing_bridge import _estimate_experience_years
+            exp_years = _estimate_experience_years(profile)
+
             async with sem:
                 llm_json = await self._llm.complete_json(
                     prompt_key="cv_ranking",
@@ -96,23 +101,26 @@ class RankingEngine:
                         "min_experience_years": req.min_experience_years,
                         "required_languages": req.required_languages or [],
                         "education_requirements": req.education_requirements or "",
-                        "candidate_name": profile.name,
-                        "current_title": profile.current_title or "",
-                        "location": profile.location or "",
-                        "total_experience_years": profile.total_experience_years or 0,
-                        "skills": profile.skills,
-                        "languages": [f"{le.language} ({le.level})" for le in profile.languages],
+                        "candidate_name": cand_name,
+                        "current_title": (emp.function or "") if emp else "",
+                        "location": (emp.region or emp.workingSite or "") if emp else "",
+                        "total_experience_years": exp_years,
+                        "skills": [s.name or "" for s in profile.skills],
+                        "languages": [
+                            f"{lg.language or ''} ({lg.proficiency or ''})"
+                            for lg in profile.languages
+                        ],
                         "experience_details": "\n".join(
-                            f"- {e.role} @ {e.company} ({e.start_date or ''} - {e.end_date or ''}): {e.description or ''}"
-                            for e in profile.experience
+                            f"- {e.role or ''} @ {e.company or ''} ({e.startDate or ''} - {e.endDate or ''}): {e.description or ''}"
+                            for e in profile.experiences
                         ),
                         "education_details": "\n".join(
-                            f"- {e.degree or ''} {e.field or ''} — {e.institution} ({e.year or ''})"
-                            for e in profile.education
+                            f"- {e.typeEducation or ''} {e.fieldOfStudy or ''} — {e.establishment or ''} ({e.dateGraduation or ''})"
+                            for e in profile.educations
                         ),
                         "achievements_details": "\n".join(
-                            f"- {a.title}"
-                            + (f" ({a.year})" if a.year else "")
+                            f"- {a.title or ''}"
+                            + (f" ({a.startDate})" if a.startDate else "")
                             + (f": {a.description}" if a.description else "")
                             for a in profile.achievements
                         ) or "(none)",

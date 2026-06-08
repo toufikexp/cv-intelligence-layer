@@ -93,7 +93,7 @@ class LLMClient:
         # Auto-fill the skills vocabulary for the extraction prompt from the
         # catalog (names only — codes never reach the LLM). Done here so callers
         # stay unaware of the catalog; absent/empty catalog degrades gracefully.
-        variables = self._with_skills_catalog(prompt_key, bundle.user_template, variables)
+        variables = self._with_catalog_context(prompt_key, bundle.user_template, variables)
         # Use literal replacement instead of str.format() because the templates
         # embed JSON schemas with real { and } characters that .format() would
         # parse as placeholders and raise KeyError on.
@@ -157,23 +157,26 @@ class LLMClient:
         return _parse_json_from_llm(text)
 
     @staticmethod
-    def _with_skills_catalog(
+    def _with_catalog_context(
         prompt_key: str, template: str, variables: dict[str, Any]
     ) -> dict[str, Any]:
-        """Inject the names-only skills vocabulary into the extraction variables.
+        """Inject catalog data into extraction prompt variables.
 
-        No-op unless this is the extraction prompt, the template expects
-        ``{skills_catalog}``, and the caller didn't already supply it. The
-        catalog is read from the process-wide store; an empty/unavailable
-        catalog yields a harmless placeholder so the prompt still renders.
+        Fills ``{skills_catalog}`` and ``{establishments_list}`` from the
+        process-wide catalog store when not already supplied by the caller.
         """
-        if prompt_key != _EXTRACTION_PROMPT_KEY or "{skills_catalog}" not in template:
-            return variables
-        if "skills_catalog" in variables:
+        if prompt_key != _EXTRACTION_PROMPT_KEY:
             return variables
         from app.services.catalog_store import catalog_store
 
-        return {**variables, "skills_catalog": catalog_store.skill_names_block()}
+        extra: dict[str, Any] = {}
+        if "{skills_catalog}" in template and "skills_catalog" not in variables:
+            extra["skills_catalog"] = catalog_store.skill_names_block()
+        if "{establishments_list}" in template and "establishments_list" not in variables:
+            extra["establishments_list"] = catalog_store.establishments_block()
+        if not extra:
+            return variables
+        return {**variables, **extra}
 
     async def _complete_gemini_cached(
         self, *, system: str, user: str, thinking_budget: int = 0

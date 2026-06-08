@@ -9,12 +9,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.models.database import CVProfile
-from app.models.schemas import CandidateProfile, RankingRequest
+from app.models.schemas import CandidateProfile, EmployeeInfo, RankingRequest, SkillEntry
 from app.services.ranking_engine import DEFAULT_WEIGHTS, RankingEngine
 
 
 def _make_cv(file_hash: str, profile: CandidateProfile) -> CVProfile:
     now = datetime.now(timezone.utc)
+    emp = profile.employee
+    cand_name = f"{emp.firstname or ''} {emp.lastname or ''}".strip() if emp else None
     return CVProfile(
         cv_id=uuid.uuid4(),
         external_id=file_hash,
@@ -22,7 +24,7 @@ def _make_cv(file_hash: str, profile: CandidateProfile) -> CVProfile:
         file_hash=file_hash,
         search_doc_external_id=file_hash,
         profile_data=profile.model_dump(mode="json"),
-        candidate_name=profile.name,
+        candidate_name=cand_name,
         status="ready",
         created_at=now,
         updated_at=now,
@@ -55,7 +57,6 @@ async def test_rank_composite_score(
     assert candidate.cv_id == cv.cv_id
     assert candidate.external_id == "abc123deadbeef"
 
-    # Verify composite score: semantic=0.85, skills=0.8, exp=0.7, edu=0.6, lang=0.9
     w = DEFAULT_WEIGHTS
     expected = w["semantic"] * 0.85 + w["skills"] * 0.8 + w["experience"] * 0.7 + w["education"] * 0.6 + w["language"] * 0.9
     assert candidate.score == pytest.approx(expected, abs=0.01)
@@ -90,8 +91,14 @@ async def test_rank_multiple_sorted(
 ) -> None:
     """Two candidates should be sorted by composite score descending."""
 
-    profile_a = CandidateProfile(name="Alice", skills=["Python"])
-    profile_b = CandidateProfile(name="Bob", skills=["Java"])
+    profile_a = CandidateProfile(
+        employee=EmployeeInfo(firstname="Alice", lastname="A"),
+        skills=[SkillEntry(name="Python")],
+    )
+    profile_b = CandidateProfile(
+        employee=EmployeeInfo(firstname="Bob", lastname="B"),
+        skills=[SkillEntry(name="Java")],
+    )
     cv_a = _make_cv("hash_a", profile_a)
     cv_b = _make_cv("hash_b", profile_b)
     cv_b.collection_id = cv_a.collection_id

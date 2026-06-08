@@ -1,10 +1,4 @@
-"""Tests for the PUT, PATCH, and POST (JSON-create) helper flows in app/api/cv.py.
-
-These exercise ``_replace_cv_file``, ``_apply_profile_patch``, and
-``create_cv_from_json`` directly instead of going through ``TestClient``
-because the dependency graph (search client, Celery, file validation) is
-easier to stub at the helper boundary than via FastAPI's override system.
-"""
+"""Tests for the PUT, PATCH, and POST (JSON-create) helper flows in app/api/cv.py."""
 
 from __future__ import annotations
 
@@ -24,7 +18,13 @@ from app.api.cv import (
     extract_cv,
 )
 from app.models.database import CVProcessingJob, CVProfile
-from app.models.schemas import CandidateCreateRequest, CandidateProfile, CandidateProfilePatch
+from app.models.schemas import (
+    CandidateCreateRequest,
+    CandidateProfile,
+    CandidateProfilePatch,
+    EmployeeInfo,
+    SkillEntry,
+)
 from app.services.cv_service import CVService
 from app.services.document_processor import ExtractedText
 from app.services.indexing_bridge import build_synthetic_text
@@ -43,12 +43,16 @@ def _ready_cv(**overrides: object) -> CVProfile:
         created_at=now,
         updated_at=now,
         profile_data={
-            "name": "Amina Bensaid",
-            "email": "amina@example.com",
-            "phone": "+212600000000",
-            "skills": ["Python"],
-            "experience": [],
-            "education": [],
+            "employee": {
+                "firstname": "Amina",
+                "lastname": "Bensaid",
+                "email": "amina@example.com",
+                "phone": "+212600000000",
+                "function": "Data Engineer",
+            },
+            "skills": [{"name": "Python", "score": "ADVANCED"}],
+            "experiences": [],
+            "educations": [],
             "languages": [],
             "certifications": [],
         },
@@ -72,7 +76,6 @@ async def test_replace_cv_file_short_circuits_on_identical_bytes() -> None:
     latest_job = MagicMock(spec=CVProcessingJob)
     latest_job.job_id = uuid.uuid4()
     cv_service.get_latest_processing_job = AsyncMock(return_value=latest_job)
-    # These MUST NOT be called on the no-change path.
     cv_service.check_file_hash_conflict = AsyncMock()
     cv_service.reset_cv_for_reingest = AsyncMock()
 
@@ -150,7 +153,6 @@ async def test_replace_cv_file_reingests_when_hash_differs() -> None:
     assert result.job_id == new_job.job_id
     assert result.file_hash == "brand_new_hash"
     assert result.status == "pending"
-    # callback_url override was applied on the CV row
     assert cv.callback_url == "https://hp.example/hook"
 
     cv_service.check_file_hash_conflict.assert_awaited_once()
@@ -218,7 +220,7 @@ async def test_apply_profile_patch_rejects_non_ready_cv() -> None:
             db=AsyncMock(),
             cv_service=cv_service,
             cv=cv,
-            patch=CandidateProfilePatch(current_title="Staff Engineer"),
+            patch=CandidateProfilePatch(summary="Updated summary"),
         )
 
     assert exc_info.value.status_code == 409
@@ -235,7 +237,7 @@ async def test_apply_profile_patch_rejects_when_profile_data_missing() -> None:
             db=AsyncMock(),
             cv_service=cv_service,
             cv=cv,
-            patch=CandidateProfilePatch(current_title="Staff Engineer"),
+            patch=CandidateProfilePatch(summary="Updated summary"),
         )
 
     assert exc_info.value.status_code == 409
@@ -249,13 +251,12 @@ async def test_apply_profile_patch_merges_and_reindexes_sync() -> None:
     cv_service.check_email_conflict = AsyncMock()
     cv_service.mark_index_failed = AsyncMock()
 
-    async def _update_profile_data(*, db, cv, merged_profile, skillconnect_profile=None):
+    async def _update_profile_data(*, db, cv, merged_profile):
         cv.profile_data = merged_profile.model_dump(mode="json")
-        cv.candidate_name = merged_profile.name
-        cv.email = merged_profile.email
-        cv.phone = merged_profile.phone
-        if skillconnect_profile is not None:
-            cv.skillconnect_profile = skillconnect_profile
+        emp = merged_profile.employee
+        cv.candidate_name = f"{emp.firstname} {emp.lastname}".strip() if emp else None
+        cv.email = emp.email if emp else None
+        cv.phone = emp.phone if emp else None
         return cv
 
     cv_service.update_profile_data = AsyncMock(side_effect=_update_profile_data)
@@ -270,24 +271,21 @@ async def test_apply_profile_patch_merges_and_reindexes_sync() -> None:
             cv_service=cv_service,
             cv=cv,
             patch=CandidateProfilePatch(
-                current_title="Senior Data Engineer",
-                skills=["Python", "Spark", "Airflow"],
-                certifications=["AWS SA"],
+                summary="Senior Data Engineer profile.",
+                skills=[
+                    SkillEntry(name="Python", score="EXPERT"),
+                    SkillEntry(name="Spark", score="ADVANCED"),
+                    SkillEntry(name="Airflow", score="INTERMEDIATE"),
+                ],
             ),
         )
 
-    # Profile merge happened.
-    assert cv.profile_data["current_title"] == "Senior Data Engineer"
-    assert cv.profile_data["skills"] == ["Python", "Spark", "Airflow"]
-    assert cv.profile_data["certifications"] == ["AWS SA"]
-    # Untouched scalars preserved.
-    assert cv.profile_data["email"] == "amina@example.com"
-    assert cv.profile_data["name"] == "Amina Bensaid"
+    assert cv.profile_data["summary"] == "Senior Data Engineer profile."
+    assert len(cv.profile_data["skills"]) == 3
+    assert cv.profile_data["employee"]["email"] == "amina@example.com"
 
-    # Email didn't change → no email conflict check.
     cv_service.check_email_conflict.assert_not_called()
 
-    # Re-indexed once, with the existing external_id.
     mock_client.ingest_documents.assert_awaited_once()
     _, kwargs = mock_client.ingest_documents.call_args
     assert kwargs["upsert"] is True
@@ -296,11 +294,9 @@ async def test_apply_profile_patch_merges_and_reindexes_sync() -> None:
     assert kwargs["documents"][0]["external_id"] == cv.external_id
     mock_client.aclose.assert_awaited_once()
 
-    # Handler returned a well-formed CVProfileResponse.
     assert result.cv_id == cv.cv_id
     assert result.external_id == cv.external_id
     assert result.profile is not None
-    assert result.profile.current_title == "Senior Data Engineer"
 
 
 @pytest.mark.asyncio
@@ -322,7 +318,12 @@ async def test_apply_profile_patch_checks_email_conflict_when_email_changes() ->
                 db=AsyncMock(),
                 cv_service=cv_service,
                 cv=cv,
-                patch=CandidateProfilePatch(email="new@example.com"),
+                patch=CandidateProfilePatch(
+                    employee=EmployeeInfo(
+                        firstname="Amina", lastname="Bensaid",
+                        email="new@example.com",
+                    ),
+                ),
             )
 
     assert exc_info.value.status_code == 409
@@ -349,7 +350,7 @@ async def test_apply_profile_patch_marks_index_failed_on_upstream_error() -> Non
                 db=AsyncMock(),
                 cv_service=cv_service,
                 cv=cv,
-                patch=CandidateProfilePatch(current_title="Senior Data Engineer"),
+                patch=CandidateProfilePatch(summary="Updated"),
             )
 
     assert exc_info.value.status_code == 502
@@ -360,8 +361,7 @@ async def test_apply_profile_patch_marks_index_failed_on_upstream_error() -> Non
 
 @pytest.mark.asyncio
 async def test_apply_profile_patch_rejects_unknown_fields() -> None:
-    # Unknown fields should fail at Pydantic level, not reach the helper.
-    with pytest.raises(Exception):  # ValidationError at model construction
+    with pytest.raises(Exception):
         CandidateProfilePatch(not_a_real_field="x")  # type: ignore[call-arg]
 
 
@@ -375,9 +375,15 @@ def _make_create_request(**overrides: object) -> CandidateCreateRequest:
         collection_id=uuid.uuid4(),
         external_id="EMP-NEW",
         profile=CandidateProfile(
-            name="Amina Bensaid",
-            email="amina@example.com",
-            skills=["Python", "Spark"],
+            employee=EmployeeInfo(
+                firstname="Amina",
+                lastname="Bensaid",
+                email="amina@example.com",
+            ),
+            skills=[
+                SkillEntry(name="Python", score="ADVANCED"),
+                SkillEntry(name="Spark", score="INTERMEDIATE"),
+            ],
         ),
     )
     defaults.update(overrides)
@@ -401,8 +407,8 @@ async def test_create_cv_from_json_happy_path() -> None:
         raw_text=synthetic,
         language="mixed",
         extraction_method="json_input",
-        candidate_name=req.profile.name,
-        email=req.profile.email,
+        candidate_name="Amina Bensaid",
+        email="amina@example.com",
         search_doc_external_id=req.external_id,
         created_at=now,
         updated_at=now,
@@ -442,8 +448,6 @@ async def test_create_cv_from_json_happy_path() -> None:
     assert result.status == "indexing"
     assert cv.search_ingest_job_id == "stub-job-id"
     assert result.profile is not None
-    assert result.profile.name == "Amina Bensaid"
-    assert result.profile.skills == ["Python", "Spark"]
 
     cv_service.create_cv_for_indexing.assert_awaited_once()
     call_kwargs = cv_service.create_cv_for_indexing.call_args.kwargs
@@ -476,7 +480,7 @@ async def test_create_cv_from_json_search_failure_marks_index_failed() -> None:
         raw_text=synthetic,
         language="mixed",
         extraction_method="json_input",
-        candidate_name=req.profile.name,
+        candidate_name="Amina Bensaid",
         search_doc_external_id=req.external_id,
         created_at=now,
         updated_at=now,
@@ -550,7 +554,7 @@ async def test_create_cv_from_json_rejects_unknown_fields() -> None:
         CandidateCreateRequest(
             collection_id=uuid.uuid4(),
             external_id="EMP-X",
-            profile=CandidateProfile(name="X"),
+            profile=CandidateProfile(),
             bogus_field="should fail",  # type: ignore[call-arg]
         )
 
@@ -569,9 +573,15 @@ def _fake_upload(content_type: str = "application/pdf", filename: str = "cv.pdf"
 
 def _extracted_profile() -> CandidateProfile:
     return CandidateProfile(
-        name="Amina Bensaid",
-        email="amina@example.com",
-        skills=["Python", "Spark"],
+        employee=EmployeeInfo(
+            firstname="Amina",
+            lastname="Bensaid",
+            email="amina@example.com",
+        ),
+        skills=[
+            SkillEntry(name="Python", score="ADVANCED"),
+            SkillEntry(name="Spark", score="INTERMEDIATE"),
+        ],
     )
 
 
@@ -610,18 +620,15 @@ async def test_extract_cv_happy_path_pdf() -> None:
     ):
         result = await extract_cv(file=_fake_upload(), _="test-key")
 
-    assert result.profile.name == "Amina Bensaid"
+    assert result.profile.employee.firstname == "Amina"
     assert result.language == "fr"
     assert result.extraction_method == "text_extraction"
     assert result.file_hash == "filehash123"
     assert result.raw_text == raw_text
-    # OCR branch was not taken.
     ocr_mock.assert_not_called()
-    # Entity extractor was called with the non-OCR notes.
     fake_extractor.extract.assert_awaited_once()
     notes = fake_extractor.extract.call_args.kwargs["extraction_notes"]
     assert "OCR" not in notes
-    # Stateless: temp file deleted.
     mock_path.unlink.assert_called_once_with(missing_ok=True)
 
 
@@ -697,7 +704,6 @@ async def test_extract_cv_llm_failure_returns_502_and_cleans_up() -> None:
 
     assert exc_info.value.status_code == 502
     assert exc_info.value.detail["code"] == "UPSTREAM_LLM_ERROR"
-    # finally block ran: temp file cleaned up even on LLM failure.
     mock_path.unlink.assert_called_once_with(missing_ok=True)
 
 
@@ -717,7 +723,7 @@ async def test_extract_cv_ocr_branch_invokes_ocr() -> None:
     fake_processor = MagicMock()
     fake_processor.extract = AsyncMock(
         return_value=ExtractedText(
-            text="",  # sparse — triggers OCR
+            text="",
             method="text_extraction",
             needs_ocr=True,
         )
@@ -744,18 +750,16 @@ async def test_extract_cv_ocr_branch_invokes_ocr() -> None:
     ocr_mock.assert_called_once()
     assert result.extraction_method == "ocr_easyocr"
     assert result.raw_text == _OCR_RECOVERED_TEXT
-    # Entity extractor should have been told the text came from OCR.
     notes = fake_extractor.extract.call_args.kwargs["extraction_notes"]
     assert "OCR" in notes
     mock_path.unlink.assert_called_once_with(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
-# SkillConnect coded round-trips (data-model extension; no new flow)
+# Enrichment: skill codes resolved, SS gets names only
 # ---------------------------------------------------------------------------
 
 def _seeded_catalog():
-    """A CatalogStore seeded with skill codes, bypassing the DB load."""
     from app.services.catalog_store import CatalogStore, normalize
 
     store = CatalogStore()
@@ -766,107 +770,7 @@ def _seeded_catalog():
 
 
 @pytest.mark.asyncio
-async def test_create_cv_from_coded_payload_resolves_names_and_echoes_codes() -> None:
-    coded = {
-        "employee": {"firstname": "Amina", "lastname": "Bensaid", "email": "amina@example.com",
-                     "function": "Data Engineer"},
-        "skills": [{"skill": "SK1"}, {"skill": "SK2"}],
-        "summary": "Engineer.",
-    }
-    req = CandidateCreateRequest(
-        collection_id=uuid.uuid4(), external_id="EMP-SC", skillconnect_profile=coded
-    )
-
-    captured: dict[str, object] = {}
-
-    async def _create(**kwargs):
-        captured.update(kwargs)
-        now = datetime.now(timezone.utc)
-        cv = CVProfile(
-            cv_id=uuid.uuid4(), external_id="EMP-SC", collection_id=req.collection_id,
-            file_hash="h", status="indexing",
-            profile_data=kwargs["profile"].model_dump(mode="json"),
-            raw_text=kwargs["raw_text"], language="en", extraction_method="json_input",
-            candidate_name=kwargs["profile"].name, search_doc_external_id="EMP-SC",
-            skillconnect_profile=kwargs["skillconnect_profile"], created_at=now, updated_at=now,
-        )
-        job = CVProcessingJob(job_id=uuid.uuid4(), cv_id=cv.cv_id, stage="indexing",
-                              status="submitted", progress_pct=90)
-        return cv, job
-
-    cv_service = MagicMock(spec=CVService)
-    cv_service.create_cv_for_indexing = AsyncMock(side_effect=_create)
-    cv_service.mark_index_failed = AsyncMock()
-
-    mock_client = MagicMock()
-    mock_client.ingest_documents = AsyncMock(return_value={"job_id": "stub"})
-    mock_client.aclose = AsyncMock()
-
-    with (
-        patch("app.api.cv.catalog_store", _seeded_catalog()),
-        patch("app.api.cv.get_ingest_search_client", return_value=mock_client),
-        patch("app.api.cv.detect_language", AsyncMock(return_value="en")),
-    ):
-        result = await create_cv_from_json(
-            req=req, _="test-key", db=AsyncMock(), cv_service=cv_service
-        )
-
-    # Codes were resolved to names for the engine view (profile_data).
-    assert captured["profile"].skills == ["Python", "Apache Spark"]
-    # Coded payload stored verbatim for echo-back.
-    assert captured["skillconnect_profile"] == coded
-    assert result.skillconnect_profile == coded
-    # Semantic Search received NAMES, never codes.
-    _, ingest_kwargs = mock_client.ingest_documents.call_args
-    indexed_skills = ingest_kwargs["documents"][0]["metadata"]["skills"]
-    assert indexed_skills == ["Python", "Apache Spark"]
-    assert "SK1" not in str(ingest_kwargs["documents"][0])
-
-
-@pytest.mark.asyncio
-async def test_patch_with_coded_payload_rebuilds_profile_and_stores_codes() -> None:
-    cv = _ready_cv()
-    coded = {
-        "employee": {"firstname": "Amina", "lastname": "Bensaid"},
-        "skills": [{"skill": "SK2"}],
-    }
-
-    cv_service = MagicMock(spec=CVService)
-    cv_service.check_email_conflict = AsyncMock()
-    cv_service.mark_index_failed = AsyncMock()
-
-    async def _update_profile_data(*, db, cv, merged_profile, skillconnect_profile=None):
-        cv.profile_data = merged_profile.model_dump(mode="json")
-        cv.candidate_name = merged_profile.name
-        if skillconnect_profile is not None:
-            cv.skillconnect_profile = skillconnect_profile
-        return cv
-
-    cv_service.update_profile_data = AsyncMock(side_effect=_update_profile_data)
-
-    mock_client = MagicMock()
-    mock_client.ingest_documents = AsyncMock(return_value={"job_id": "stub"})
-    mock_client.aclose = AsyncMock()
-
-    with (
-        patch("app.api.cv.catalog_store", _seeded_catalog()),
-        patch("app.api.cv.get_ingest_search_client", return_value=mock_client),
-    ):
-        await _apply_profile_patch(
-            db=AsyncMock(), cv_service=cv_service, cv=cv,
-            patch=CandidateProfilePatch(skillconnect_profile=coded),
-        )
-
-    # Profile rebuilt wholesale from the coded payload (skill code -> name).
-    assert cv.profile_data["skills"] == ["Apache Spark"]
-    assert cv.skillconnect_profile == coded
-    # Re-indexed with NAMES only.
-    _, ingest_kwargs = mock_client.ingest_documents.call_args
-    assert ingest_kwargs["documents"][0]["metadata"]["skills"] == ["Apache Spark"]
-
-
-@pytest.mark.asyncio
-async def test_extract_cv_returns_coded_projection() -> None:
+async def test_extract_cv_enriches_skill_codes() -> None:
     mock_path = MagicMock(spec=Path)
     fake_processor = MagicMock()
     long_text = (
@@ -879,10 +783,15 @@ async def test_extract_cv_returns_coded_projection() -> None:
     fake_processor.extract = AsyncMock(
         return_value=ExtractedText(text=long_text, method="text_extraction", needs_ocr=False)
     )
-    fake_extractor = MagicMock()
-    fake_extractor.extract = AsyncMock(
-        return_value=CandidateProfile(name="Amina", skills=["Python", "Rust"])
+    profile = CandidateProfile(
+        employee=EmployeeInfo(firstname="Amina"),
+        skills=[
+            SkillEntry(name="Python"),
+            SkillEntry(name="Rust"),
+        ],
     )
+    fake_extractor = MagicMock()
+    fake_extractor.extract = AsyncMock(return_value=profile)
 
     with (
         patch("app.api.cv.catalog_store", _seeded_catalog()),
@@ -896,7 +805,6 @@ async def test_extract_cv_returns_coded_projection() -> None:
     ):
         result = await extract_cv(file=_fake_upload(), _="test-key")
 
-    assert result.profile.skills == ["Python", "Rust"]  # internal stays names-only
-    coded_skills = {s["name"]: s["skill"] for s in result.skillconnect_profile["skills"]}
-    assert coded_skills["Python"] == "SK1"
-    assert coded_skills["Rust"] is None  # unmatched -> null code
+    skills_by_name = {s.name: s.skill for s in result.profile.skills}
+    assert skills_by_name["Python"] == "SK1"
+    assert skills_by_name["Rust"] is None

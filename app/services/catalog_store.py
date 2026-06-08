@@ -72,6 +72,11 @@ class CatalogStore:
         names = sorted({name for name in self._skill_code_to_name.values()})
         return "\n".join(names) if names else "(catalog unavailable)"
 
+    def establishments_block(self) -> str:
+        """Newline-joined, sorted establishment *names* for the Gemini prompt."""
+        names = sorted({name for name in self._estab_code_to_name.values()})
+        return "\n".join(names) if names else "(list unavailable)"
+
     @property
     def fingerprint(self) -> str:
         return self._fingerprint

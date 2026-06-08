@@ -285,6 +285,9 @@ def extract_entities(self, payload: dict[str, Any]) -> dict[str, Any]:
         )
 
     profile = asyncio.run(_extract())
+    from app.services.catalog_store import catalog_store
+    from app.services.skill_resolver import enrich_profile
+    enrich_profile(profile, catalog_store)
     payload["profile"] = profile.model_dump(mode="json")
     asyncio.run(
         _update_job(
@@ -317,16 +320,21 @@ def store_profile(self, payload: dict[str, Any]) -> dict[str, Any]:
 
     async def _store() -> None:
         eng, Session = _make_session()
+        profile = payload.get("profile", {}) or {}
+        emp = profile.get("employee") or {}
+        firstname = emp.get("firstname") or ""
+        lastname = emp.get("lastname") or ""
+        cand_name = f"{firstname} {lastname}".strip() or None
         async with Session() as db:
             await db.execute(
                 update(CVProfile)
                 .where(CVProfile.cv_id == cv_id)
                 .values(
                     raw_text=payload.get("raw_text"),
-                    profile_data=payload.get("profile"),
-                    candidate_name=(payload.get("profile", {}) or {}).get("name"),
-                    email=(payload.get("profile", {}) or {}).get("email"),
-                    phone=(payload.get("profile", {}) or {}).get("phone"),
+                    profile_data=profile,
+                    candidate_name=cand_name,
+                    email=emp.get("email"),
+                    phone=emp.get("phone"),
                     language=payload.get("language"),
                     extraction_method=payload.get("extraction_method"),
                     updated_at=datetime.utcnow(),

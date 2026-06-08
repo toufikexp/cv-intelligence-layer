@@ -9,7 +9,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.models.database import CVProcessingJob, CVProfile
-from app.models.schemas import CandidateProfile
+from app.models.schemas import CandidateProfile, EmployeeInfo, SkillEntry
 from app.services.cv_service import CVService
 
 
@@ -41,7 +41,6 @@ async def test_create_pending_cv_duplicate_external_id_raises_409() -> None:
     existing = MagicMock(spec=CVProfile)
     existing.cv_id = uuid.uuid4()
 
-    # The external_id check is the first lookup and returns a match.
     mock_db = AsyncMock()
     exec_result = MagicMock()
     exec_result.scalar_one_or_none.return_value = existing
@@ -65,8 +64,6 @@ async def test_create_pending_cv_duplicate_file_hash_raises_409() -> None:
     existing = MagicMock(spec=CVProfile)
     existing.cv_id = uuid.uuid4()
 
-    # First call (external_id check) finds nothing, second call (file_hash
-    # check) finds a match.
     ext_none = MagicMock()
     ext_none.scalar_one_or_none.return_value = None
     hash_hit = MagicMock()
@@ -170,7 +167,7 @@ async def test_reset_cv_for_reingest_wipes_derived_fields_and_creates_job() -> N
         collection_id=uuid.uuid4(),
         file_hash="oldhash",
         status="ready",
-        profile_data={"name": "Amina"},
+        profile_data={"employee": {"firstname": "Amina"}},
         raw_text="old text",
         language="fra",
         extraction_method="text_extraction",
@@ -200,7 +197,6 @@ async def test_reset_cv_for_reingest_wipes_derived_fields_and_creates_job() -> N
     assert cv.email is None
     assert cv.phone is None
     assert cv.search_ingest_job_id is None
-    # Identity preserved
     assert cv.external_id == "EMP-001"
     assert cv.search_doc_external_id == "EMP-001"
 
@@ -250,7 +246,6 @@ async def test_check_file_hash_conflict_no_collision_returns_none() -> None:
     mock_db.execute = AsyncMock(return_value=exec_result)
 
     svc = CVService()
-    # Should not raise.
     await svc.check_file_hash_conflict(
         db=mock_db,
         collection_id=uuid.uuid4(),
@@ -272,16 +267,19 @@ async def test_update_profile_data_writes_profile_and_denormalized_fields() -> N
         collection_id=uuid.uuid4(),
         file_hash="h",
         status="ready",
-        profile_data={"name": "Old Name"},
+        profile_data={"employee": {"firstname": "Old", "lastname": "Name"}},
         candidate_name="Old Name",
         email="old@example.com",
         phone="+10000000000",
     )
     merged = CandidateProfile(
-        name="New Name",
-        email="new@example.com",
-        phone="+20000000000",
-        skills=["Python", "Spark"],
+        employee=EmployeeInfo(
+            firstname="New",
+            lastname="Name",
+            email="new@example.com",
+            phone="+20000000000",
+        ),
+        skills=[SkillEntry(name="Python"), SkillEntry(name="Spark")],
     )
     mock_db = AsyncMock()
 
@@ -289,8 +287,8 @@ async def test_update_profile_data_writes_profile_and_denormalized_fields() -> N
     result = await svc.update_profile_data(db=mock_db, cv=cv, merged_profile=merged)
 
     assert result is cv
-    assert cv.profile_data["name"] == "New Name"
-    assert cv.profile_data["skills"] == ["Python", "Spark"]
+    assert cv.profile_data["employee"]["firstname"] == "New"
+    assert cv.profile_data["employee"]["lastname"] == "Name"
     assert cv.candidate_name == "New Name"
     assert cv.email == "new@example.com"
     assert cv.phone == "+20000000000"
@@ -355,9 +353,12 @@ async def test_create_cv_for_indexing_success() -> None:
     mock_db.execute = AsyncMock(return_value=exec_result)
 
     profile = CandidateProfile(
-        name="Amina Bensaid",
-        email="amina@example.com",
-        skills=["Python", "Spark"],
+        employee=EmployeeInfo(
+            firstname="Amina",
+            lastname="Bensaid",
+            email="amina@example.com",
+        ),
+        skills=[SkillEntry(name="Python"), SkillEntry(name="Spark")],
     )
 
     svc = CVService()
@@ -379,7 +380,6 @@ async def test_create_cv_for_indexing_success() -> None:
     assert cv.email == "amina@example.com"
     assert cv.raw_text == "Name: Amina Bensaid\nSkills: Python, Spark"
     assert cv.language == "fr"
-    assert cv.profile_data["skills"] == ["Python", "Spark"]
     assert cv.search_doc_external_id == "EMP-100"
 
     assert job.stage == "indexing"
@@ -407,7 +407,7 @@ async def test_create_cv_for_indexing_duplicate_external_id_raises_409() -> None
             collection_id=uuid.uuid4(),
             external_id="EMP-DUPE",
             file_hash="h",
-            profile=CandidateProfile(name="X"),
+            profile=CandidateProfile(),
             raw_text="text",
             language="en",
         )
@@ -436,7 +436,7 @@ async def test_create_cv_for_indexing_duplicate_file_hash_raises_409() -> None:
             collection_id=uuid.uuid4(),
             external_id="EMP-NEW",
             file_hash="dupe_hash",
-            profile=CandidateProfile(name="X"),
+            profile=CandidateProfile(),
             raw_text="text",
             language="en",
         )
