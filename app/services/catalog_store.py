@@ -60,8 +60,17 @@ class CatalogStore:
         return self._lang_norm_to_code.get(normalize(name))
 
     def skills_catalog_lines(self) -> list[str]:
-        """`name (code)` lines for inclusion in the Gemini extraction prompt."""
+        """`name (code)` lines — internal/debug view; NOT sent to the LLM."""
         return [f"{name} ({code})" for code, name in sorted(self._skill_code_to_name.items())]
+
+    def skill_names_block(self) -> str:
+        """Newline-joined, sorted, de-duplicated skill *names* for the Gemini prompt.
+
+        Names only — codes never reach the LLM (the code↔name mapping is
+        resolved deterministically downstream by the catalog store).
+        """
+        names = sorted({name for name in self._skill_code_to_name.values()})
+        return "\n".join(names) if names else "(catalog unavailable)"
 
     @property
     def fingerprint(self) -> str:

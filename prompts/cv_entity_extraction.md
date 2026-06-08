@@ -7,16 +7,8 @@ You are a precise CV/resume parser. Extract structured candidate information fro
 ## User Prompt Template
 
 ```
-Extract structured candidate information from the following CV text.
-
-**CV Language**: {detected_language}
-**Extraction Notes**: {extraction_notes}
-
----
-
-{cv_text}
-
----
+Extract structured candidate information from a CV. The CV text appears at the
+very end, after the schema and rules below.
 
 Return a JSON object matching this exact schema:
 
@@ -80,6 +72,18 @@ Rules:
 7. Achievements are **discrete, named projects/realizations** that stand on their own — typically found under headings like "Projets", "Réalisations", "Key Projects", "Achievements", "Projets notables". Do NOT duplicate generic job responsibilities already captured in `experience[].description`. If the CV has no such section and no clearly-named project, return an empty array.
 8. Return ONLY the JSON object. No markdown backticks, no explanation text.
 9. Personal information (name, email, phone, location, URLs, date of birth) has been redacted for privacy. Placeholders like [REDACTED_NAME], [REDACTED_EMAIL], [REDACTED_PHONE], [REDACTED_LOCATION], [REDACTED_URL], [REDACTED_DOB] may appear in the text. Set the corresponding output fields to null. Focus on extracting current_title, summary, skills, experience, education, languages, certifications, achievements, and total_experience_years.
+10. Skills vocabulary: a controlled list of canonical skill names is provided below. When a skill you extract clearly matches one of these names, output the canonical name **exactly** as listed (this keeps skills consistent across candidates). If an extracted skill is not in the list, keep your own normalized name — never invent or force a match.
+
+Controlled skill vocabulary (canonical names; use exact spelling when a match is clear):
+{skills_catalog}
+
+<<<CV_INPUT>>>
+**CV Language**: {detected_language}
+**Extraction Notes**: {extraction_notes}
+
+--- CV TEXT START ---
+{cv_text}
+--- CV TEXT END ---
 ```
 
 ## Few-Shot Examples

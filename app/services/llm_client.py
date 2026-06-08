@@ -32,6 +32,13 @@ def _parse_json_from_llm(text: str) -> dict[str, Any]:
     return json.loads(t)
 
 
+# Marker in the extraction template separating the stable prefix (instructions,
+# schema, rules, skills vocabulary) from the per-CV variable tail. The stable
+# prefix is what gets cached in Gemini context cache.
+_CACHE_SPLIT_MARKER = "<<<CV_INPUT>>>"
+_EXTRACTION_PROMPT_KEY = "cv_entity_extraction"
+
+
 class LLMClient:
     """LLM wrapper: Gemini via `google-genai` (default); OpenAI-compatible HTTP for local LLM."""
 
@@ -44,12 +51,23 @@ class LLMClient:
         base_url: str | None,
         prompts_dir: Path,
         ssl_verify: bool = True,
+        cache_enabled: bool = False,
+        cache_ttl_seconds: int = 3600,
     ) -> None:
         self._provider = provider.lower().strip()
         self._api_key = api_key
         self._model = model
         self._base_url = base_url
         self._ssl_verify = ssl_verify
+        # Gemini context cache (extraction prompt prefix). In-process per client:
+        # each worker/api process lazily creates its own cache and recreates it
+        # when the catalog fingerprint changes or the TTL lapses. Fail-soft —
+        # any cache error falls back to the plain (uncached) call.
+        self._cache_enabled = cache_enabled
+        self._cache_ttl_seconds = cache_ttl_seconds
+        self._cache_name: str | None = None
+        self._cache_fingerprint: str | None = None
+        self._cache_expires_at: float = 0.0
         self._prompts: dict[str, PromptBundle] = {
             "cv_entity_extraction": load_prompt(prompts_dir / "cv_entity_extraction.md"),
             "cv_ranking": load_prompt(prompts_dir / "cv_ranking.md"),
@@ -72,6 +90,10 @@ class LLMClient:
         self, *, prompt_key: str, variables: dict[str, Any], thinking_budget: int = 0
     ) -> dict[str, Any]:
         bundle = self._prompts[prompt_key]
+        # Auto-fill the skills vocabulary for the extraction prompt from the
+        # catalog (names only — codes never reach the LLM). Done here so callers
+        # stay unaware of the catalog; absent/empty catalog degrades gracefully.
+        variables = self._with_skills_catalog(prompt_key, bundle.user_template, variables)
         # Use literal replacement instead of str.format() because the templates
         # embed JSON schemas with real { and } characters that .format() would
         # parse as placeholders and raise KeyError on.
@@ -80,13 +102,24 @@ class LLMClient:
             user = user.replace("{" + key + "}", str(value))
         start = time.perf_counter()
         try:
-            if self._provider == "gemini":
-                result = await self._complete_gemini_json(
+            if (
+                self._provider == "gemini"
+                and self._cache_enabled
+                and prompt_key == _EXTRACTION_PROMPT_KEY
+                and _CACHE_SPLIT_MARKER in user
+            ):
+                result = await self._complete_gemini_cached(
                     system=bundle.system, user=user, thinking_budget=thinking_budget
+                )
+            elif self._provider == "gemini":
+                result = await self._complete_gemini_json(
+                    system=bundle.system,
+                    user=user.replace(_CACHE_SPLIT_MARKER, "").strip(),
+                    thinking_budget=thinking_budget,
                 )
             elif self._provider == "openai_compatible":
                 result = await self._complete_openai_compatible_json(
-                    system=bundle.system, user=user
+                    system=bundle.system, user=user.replace(_CACHE_SPLIT_MARKER, "").strip()
                 )
             else:
                 raise ValueError(
@@ -122,6 +155,113 @@ class LLMClient:
         if not text:
             raise RuntimeError("Gemini returned empty response (check safety / quota).")
         return _parse_json_from_llm(text)
+
+    @staticmethod
+    def _with_skills_catalog(
+        prompt_key: str, template: str, variables: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Inject the names-only skills vocabulary into the extraction variables.
+
+        No-op unless this is the extraction prompt, the template expects
+        ``{skills_catalog}``, and the caller didn't already supply it. The
+        catalog is read from the process-wide store; an empty/unavailable
+        catalog yields a harmless placeholder so the prompt still renders.
+        """
+        if prompt_key != _EXTRACTION_PROMPT_KEY or "{skills_catalog}" not in template:
+            return variables
+        if "skills_catalog" in variables:
+            return variables
+        from app.services.catalog_store import catalog_store
+
+        return {**variables, "skills_catalog": catalog_store.skill_names_block()}
+
+    async def _complete_gemini_cached(
+        self, *, system: str, user: str, thinking_budget: int = 0
+    ) -> dict[str, Any]:
+        """Gemini call using a context-cached stable prefix + per-CV tail.
+
+        Splits the rendered prompt on the marker, (re)creates a cached content
+        for the prefix keyed by the catalog fingerprint, and sends only the
+        variable tail at generate time. Any cache failure falls back to the
+        plain single-shot call so extraction never breaks on a cache problem.
+        """
+        if self._gemini is None:
+            raise RuntimeError("Gemini client not initialized")
+        prefix, _, suffix = user.partition(_CACHE_SPLIT_MARKER)
+        prefix = prefix.strip()
+        suffix = suffix.strip()
+
+        cache_name = await self._get_or_create_cache(system=system, prefix=prefix)
+        if cache_name is None:
+            # Cache unavailable (too small, API error, …) → uncached fallback.
+            return await self._complete_gemini_json(
+                system=system, user=f"{prefix}\n\n{suffix}", thinking_budget=thinking_budget
+            )
+
+        config = types.GenerateContentConfig(
+            cached_content=cache_name,
+            max_output_tokens=4096,
+            temperature=0.1,
+            response_mime_type="application/json",
+            thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget),
+        )
+        try:
+            resp = await self._gemini.aio.models.generate_content(
+                model=self._model, contents=suffix, config=config
+            )
+        except Exception:
+            # A stale/expired cache handle 404s — drop it and retry uncached.
+            self._cache_name = None
+            self._cache_fingerprint = None
+            return await self._complete_gemini_json(
+                system=system, user=f"{prefix}\n\n{suffix}", thinking_budget=thinking_budget
+            )
+        text = getattr(resp, "text", None) or ""
+        if not text:
+            raise RuntimeError("Gemini returned empty response (check safety / quota).")
+        return _parse_json_from_llm(text)
+
+    async def _get_or_create_cache(self, *, system: str, prefix: str) -> str | None:
+        """Return a usable cached-content name, (re)creating it as needed.
+
+        Reuses the in-process handle while the catalog fingerprint is unchanged
+        and the TTL has not lapsed. Returns ``None`` (caller falls back to the
+        uncached path) on any creation error — e.g. the prefix is below
+        Gemini's minimum cacheable token count.
+        """
+        if self._gemini is None:
+            return None
+        from app.services.catalog_store import catalog_store
+
+        fingerprint = catalog_store.fingerprint
+        now = time.monotonic()
+        if (
+            self._cache_name is not None
+            and self._cache_fingerprint == fingerprint
+            and now < self._cache_expires_at
+        ):
+            return self._cache_name
+
+        try:
+            cache = await self._gemini.aio.caches.create(
+                model=self._model,
+                config=types.CreateCachedContentConfig(
+                    system_instruction=system,
+                    contents=[prefix],
+                    ttl=f"{self._cache_ttl_seconds}s",
+                    display_name="cv_entity_extraction_prefix",
+                ),
+            )
+        except Exception:
+            self._cache_name = None
+            self._cache_fingerprint = None
+            return None
+
+        self._cache_name = getattr(cache, "name", None)
+        self._cache_fingerprint = fingerprint
+        # Refresh a touch before the server TTL to avoid racing expiry.
+        self._cache_expires_at = now + max(self._cache_ttl_seconds - 60, 1)
+        return self._cache_name
 
     async def _complete_openai_compatible_json(self, *, system: str, user: str) -> dict[str, Any]:
         """OpenAI-compatible Chat Completions (local vLLM, Ollama OpenAI API, etc.)."""
@@ -166,6 +306,8 @@ def get_llm_client() -> LLMClient:
             base_url=settings.llm_base_url,
             prompts_dir=Path(__file__).resolve().parents[2] / "prompts",
             ssl_verify=settings.llm_ssl_verify,
+            cache_enabled=settings.gemini_cache_enabled,
+            cache_ttl_seconds=settings.gemini_cache_ttl_seconds,
         )
     return _llm_client
 

@@ -748,3 +748,155 @@ async def test_extract_cv_ocr_branch_invokes_ocr() -> None:
     notes = fake_extractor.extract.call_args.kwargs["extraction_notes"]
     assert "OCR" in notes
     mock_path.unlink.assert_called_once_with(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# SkillConnect coded round-trips (data-model extension; no new flow)
+# ---------------------------------------------------------------------------
+
+def _seeded_catalog():
+    """A CatalogStore seeded with skill codes, bypassing the DB load."""
+    from app.services.catalog_store import CatalogStore, normalize
+
+    store = CatalogStore()
+    skills = {"SK1": "Python", "SK2": "Apache Spark"}
+    store._skill_code_to_name = dict(skills)
+    store._skill_norm_to_code = {normalize(n): c for c, n in skills.items()}
+    return store
+
+
+@pytest.mark.asyncio
+async def test_create_cv_from_coded_payload_resolves_names_and_echoes_codes() -> None:
+    coded = {
+        "employee": {"firstname": "Amina", "lastname": "Bensaid", "email": "amina@example.com",
+                     "function": "Data Engineer"},
+        "skills": [{"skill": "SK1"}, {"skill": "SK2"}],
+        "summary": "Engineer.",
+    }
+    req = CandidateCreateRequest(
+        collection_id=uuid.uuid4(), external_id="EMP-SC", skillconnect_profile=coded
+    )
+
+    captured: dict[str, object] = {}
+
+    async def _create(**kwargs):
+        captured.update(kwargs)
+        now = datetime.now(timezone.utc)
+        cv = CVProfile(
+            cv_id=uuid.uuid4(), external_id="EMP-SC", collection_id=req.collection_id,
+            file_hash="h", status="indexing",
+            profile_data=kwargs["profile"].model_dump(mode="json"),
+            raw_text=kwargs["raw_text"], language="en", extraction_method="json_input",
+            candidate_name=kwargs["profile"].name, search_doc_external_id="EMP-SC",
+            skillconnect_profile=kwargs["skillconnect_profile"], created_at=now, updated_at=now,
+        )
+        job = CVProcessingJob(job_id=uuid.uuid4(), cv_id=cv.cv_id, stage="indexing",
+                              status="submitted", progress_pct=90)
+        return cv, job
+
+    cv_service = MagicMock(spec=CVService)
+    cv_service.create_cv_for_indexing = AsyncMock(side_effect=_create)
+    cv_service.mark_index_failed = AsyncMock()
+
+    mock_client = MagicMock()
+    mock_client.ingest_documents = AsyncMock(return_value={"job_id": "stub"})
+    mock_client.aclose = AsyncMock()
+
+    with (
+        patch("app.api.cv.catalog_store", _seeded_catalog()),
+        patch("app.api.cv.get_ingest_search_client", return_value=mock_client),
+        patch("app.api.cv.detect_language", AsyncMock(return_value="en")),
+    ):
+        result = await create_cv_from_json(
+            req=req, _="test-key", db=AsyncMock(), cv_service=cv_service
+        )
+
+    # Codes were resolved to names for the engine view (profile_data).
+    assert captured["profile"].skills == ["Python", "Apache Spark"]
+    # Coded payload stored verbatim for echo-back.
+    assert captured["skillconnect_profile"] == coded
+    assert result.skillconnect_profile == coded
+    # Semantic Search received NAMES, never codes.
+    _, ingest_kwargs = mock_client.ingest_documents.call_args
+    indexed_skills = ingest_kwargs["documents"][0]["metadata"]["skills"]
+    assert indexed_skills == ["Python", "Apache Spark"]
+    assert "SK1" not in str(ingest_kwargs["documents"][0])
+
+
+@pytest.mark.asyncio
+async def test_patch_with_coded_payload_rebuilds_profile_and_stores_codes() -> None:
+    cv = _ready_cv()
+    coded = {
+        "employee": {"firstname": "Amina", "lastname": "Bensaid"},
+        "skills": [{"skill": "SK2"}],
+    }
+
+    cv_service = MagicMock(spec=CVService)
+    cv_service.check_email_conflict = AsyncMock()
+    cv_service.mark_index_failed = AsyncMock()
+
+    async def _update_profile_data(*, db, cv, merged_profile, skillconnect_profile=None):
+        cv.profile_data = merged_profile.model_dump(mode="json")
+        cv.candidate_name = merged_profile.name
+        if skillconnect_profile is not None:
+            cv.skillconnect_profile = skillconnect_profile
+        return cv
+
+    cv_service.update_profile_data = AsyncMock(side_effect=_update_profile_data)
+
+    mock_client = MagicMock()
+    mock_client.ingest_documents = AsyncMock(return_value={"job_id": "stub"})
+    mock_client.aclose = AsyncMock()
+
+    with (
+        patch("app.api.cv.catalog_store", _seeded_catalog()),
+        patch("app.api.cv.get_ingest_search_client", return_value=mock_client),
+    ):
+        await _apply_profile_patch(
+            db=AsyncMock(), cv_service=cv_service, cv=cv,
+            patch=CandidateProfilePatch(skillconnect_profile=coded),
+        )
+
+    # Profile rebuilt wholesale from the coded payload (skill code -> name).
+    assert cv.profile_data["skills"] == ["Apache Spark"]
+    assert cv.skillconnect_profile == coded
+    # Re-indexed with NAMES only.
+    _, ingest_kwargs = mock_client.ingest_documents.call_args
+    assert ingest_kwargs["documents"][0]["metadata"]["skills"] == ["Apache Spark"]
+
+
+@pytest.mark.asyncio
+async def test_extract_cv_returns_coded_projection() -> None:
+    mock_path = MagicMock(spec=Path)
+    fake_processor = MagicMock()
+    long_text = (
+        "Amina Bensaid is a senior data engineer with eight years of experience "
+        "building data pipelines in Python and Apache Spark, designing scoring "
+        "models, and deploying Kubernetes workloads for technology companies "
+        "across Algiers and Paris. She has led teams and delivered cloud "
+        "migrations end to end."
+    )
+    fake_processor.extract = AsyncMock(
+        return_value=ExtractedText(text=long_text, method="text_extraction", needs_ocr=False)
+    )
+    fake_extractor = MagicMock()
+    fake_extractor.extract = AsyncMock(
+        return_value=CandidateProfile(name="Amina", skills=["Python", "Rust"])
+    )
+
+    with (
+        patch("app.api.cv.catalog_store", _seeded_catalog()),
+        patch("app.api.cv.validate_and_persist_upload",
+              AsyncMock(return_value=(mock_path, "h"))),
+        patch("app.api.cv.DocumentProcessor", return_value=fake_processor),
+        patch("app.api.cv.detect_language", AsyncMock(return_value="en")),
+        patch("app.api.cv.get_llm_client", return_value=MagicMock()),
+        patch("app.api.cv.EntityExtractor", return_value=fake_extractor),
+        patch("app.api.cv.ocr_pdf_pages"),
+    ):
+        result = await extract_cv(file=_fake_upload(), _="test-key")
+
+    assert result.profile.skills == ["Python", "Rust"]  # internal stays names-only
+    coded_skills = {s["name"]: s["skill"] for s in result.skillconnect_profile["skills"]}
+    assert coded_skills["Python"] == "SK1"
+    assert coded_skills["Rust"] is None  # unmatched -> null code
