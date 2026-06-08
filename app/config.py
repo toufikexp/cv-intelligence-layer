@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     llm_base_url: str | None = Field(default=None, alias="LLM_BASE_URL")
     llm_ssl_verify: bool = Field(default=True, alias="LLM_SSL_VERIFY")
 
+    # SkillConnect (Ooredoo HR) integration
+    skillconnect_api_base_url: str | None = Field(default=None, alias="SKILLCONNECT_API_BASE_URL")
+    skillconnect_ssl_verify: bool = Field(default=True, alias="SKILLCONNECT_SSL_VERIFY")
+    skillconnect_proxy: str | None = Field(default=None, alias="SKILLCONNECT_PROXY")
+    skillconnect_refresh_seconds: int = Field(default=3600, alias="SKILLCONNECT_REFRESH_SECONDS")
+    gemini_cache_enabled: bool = Field(default=False, alias="GEMINI_CACHE_ENABLED")
+    gemini_cache_ttl_seconds: int = Field(default=3600, alias="GEMINI_CACHE_TTL_SECONDS")
+
     upload_dir: Path = Field(default=Path("/tmp/cv_uploads"), alias="UPLOAD_DIR")
     max_file_size_mb: int = Field(default=20, alias="MAX_FILE_SIZE_MB")
     ocr_dpi: int = Field(default=150, alias="OCR_DPI")

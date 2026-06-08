@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import AnyHttpUrl, BaseModel, Field
+from pydantic import AnyHttpUrl, BaseModel, Field, model_validator
 
 
 class ErrorResponse(BaseModel):
@@ -99,19 +99,34 @@ class CandidateProfilePatch(BaseModel):
     certifications: list[str] | None = None
     achievements: list[AchievementEntry] | None = None
     total_experience_years: float | None = None
+    # SkillConnect coded update: when present, the profile is rebuilt wholesale
+    # from this payload (via the catalog resolver) and stored verbatim.
+    skillconnect_profile: dict[str, Any] | None = None
 
     model_config = {"extra": "forbid"}
 
 
 class CandidateCreateRequest(BaseModel):
-    """Create a candidate profile from structured JSON (no CV document)."""
+    """Create a candidate profile from structured JSON (no CV document).
+
+    Accepts either the internal ``profile`` (names) or a SkillConnect
+    ``skillconnect_profile`` (coded payload). When only the coded payload is
+    given, the internal profile is derived from it via the catalog resolver.
+    """
 
     collection_id: uuid.UUID
     external_id: str = Field(min_length=1, max_length=255)
-    profile: CandidateProfile
+    profile: CandidateProfile | None = None
+    skillconnect_profile: dict[str, Any] | None = None
     callback_url: str | None = None
 
     model_config = {"extra": "forbid"}
+
+    @model_validator(mode="after")
+    def _require_one_source(self) -> "CandidateCreateRequest":
+        if self.profile is None and self.skillconnect_profile is None:
+            raise ValueError("either 'profile' or 'skillconnect_profile' is required")
+        return self
 
 
 class CVUploadResponse(BaseModel):
@@ -135,6 +150,7 @@ class CVProfileResponse(BaseModel):
     language: str | None = None
     extraction_method: str | None = None
     profile: CandidateProfile | None = None
+    skillconnect_profile: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime | None = None
 
@@ -159,6 +175,7 @@ class CVExtractionResponse(BaseModel):
     """
 
     profile: CandidateProfile
+    skillconnect_profile: dict[str, Any] | None = None
     language: str | None = None
     extraction_method: str
     file_hash: str

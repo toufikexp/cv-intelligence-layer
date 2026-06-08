@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -86,6 +87,7 @@ class CVService:
         raw_text: str,
         language: str | None,
         callback_url: str | None = None,
+        skillconnect_profile: dict[str, Any] | None = None,
     ) -> tuple[CVProfile, CVProcessingJob]:
         """Create a CV row from structured JSON (no document upload).
 
@@ -135,6 +137,7 @@ class CVService:
             email=profile.email,
             phone=profile.phone,
             search_doc_external_id=external_id,
+            skillconnect_profile=skillconnect_profile,
             created_at=now,
             updated_at=now,
         )
@@ -267,6 +270,7 @@ class CVService:
         db: AsyncSession,
         cv: CVProfile,
         merged_profile: CandidateProfile,
+        skillconnect_profile: dict[str, Any] | None = None,
     ) -> CVProfile:
         """Write a merged CandidateProfile back to the CV row (PATCH path).
 
@@ -274,12 +278,15 @@ class CVService:
         ``profile_data`` and for checking unique-constraint conflicts (e.g.
         email) before invoking this. This method only handles the write:
         ``profile_data`` plus denormalized ``candidate_name`` / ``email`` /
-        ``phone`` columns, and the ``updated_at`` bump.
+        ``phone`` columns, and the ``updated_at`` bump. When a SkillConnect
+        coded payload is supplied it is stored verbatim for echo-back.
         """
         cv.profile_data = merged_profile.model_dump(mode="json")
         cv.candidate_name = merged_profile.name
         cv.email = merged_profile.email
         cv.phone = merged_profile.phone
+        if skillconnect_profile is not None:
+            cv.skillconnect_profile = skillconnect_profile
         cv.updated_at = datetime.utcnow()
         await db.commit()
         await db.refresh(cv)

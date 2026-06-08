@@ -44,4 +44,14 @@ def _prewarm_models(**_: object) -> None:
         log.info("spaCy models ready in worker.")
     except Exception as exc:
         log.warning("spaCy load failed in worker (will load on first task): %s", exc)
+    try:
+        import asyncio
+
+        from app.services.catalog_refresh import refresh_catalog
+
+        log.info("Loading SkillConnect catalogs in worker process…")
+        asyncio.run(refresh_catalog(fetch_api=False))
+        log.info("SkillConnect catalogs ready in worker.")
+    except Exception as exc:
+        log.warning("Catalog load failed in worker (resolution degraded): %s", exc)
 

@@ -23,12 +23,14 @@ from app.models.schemas import (
     CVStatusResponse,
     CVUploadResponse,
 )
+from app.services.catalog_store import catalog_store
 from app.services.cv_search import get_cv_search_service
 from app.services.cv_service import CVService, get_cv_service
 from app.services.document_processor import DocumentProcessor
 from app.services.entity_extractor import EntityExtractor, usable_char_count
 from app.services.indexing_bridge import build_search_document, build_synthetic_text
 from app.services.llm_client import get_llm_client
+from app.services.skill_resolver import coded_payload_to_profile, profile_to_coded_projection
 from app.services.ocr_service import ocr_pdf_pages
 from app.services.search_client import get_ingest_search_client, get_search_client
 from app.tasks.ingestion import start_cv_ingestion
@@ -75,6 +77,7 @@ def _cv_to_profile_response(cv: CVProfile) -> CVProfileResponse:
         language=cv.language,
         extraction_method=cv.extraction_method,
         profile=profile,
+        skillconnect_profile=cv.skillconnect_profile,
         created_at=cv.created_at,
         updated_at=cv.updated_at,
     )
@@ -221,11 +224,17 @@ async def _apply_profile_patch(
             },
         )
 
-    merged_dict = dict(cv.profile_data)
     patch_dict = patch.model_dump(mode="json", exclude_unset=True)
-    merged_dict.update(patch_dict)
-    # Re-validate through the strict model so bad patches 422 here, not at write.
-    merged = CandidateProfile.model_validate(merged_dict)
+    coded = patch_dict.pop("skillconnect_profile", None)
+    if coded is not None:
+        # SkillConnect update: rebuild the names profile wholesale from the
+        # coded payload (skill codes → names) and store the payload verbatim.
+        merged = coded_payload_to_profile(coded, catalog_store)
+    else:
+        merged_dict = dict(cv.profile_data)
+        merged_dict.update(patch_dict)
+        # Re-validate through the strict model so bad patches 422 here, not at write.
+        merged = CandidateProfile.model_validate(merged_dict)
 
     # Collision check: email is unique per collection. Only check if it
     # actually changed — otherwise we'd flag the CV's own current email.
@@ -241,6 +250,7 @@ async def _apply_profile_patch(
         db=db,
         cv=cv,
         merged_profile=merged,
+        skillconnect_profile=coded,
     )
 
     # Re-index synchronously. No LLM, no OCR — a single Search POST.
@@ -383,6 +393,7 @@ async def extract_cv(
 
         return CVExtractionResponse(
             profile=profile,
+            skillconnect_profile=profile_to_coded_projection(profile, catalog_store),
             language=language,
             extraction_method=extraction_method,
             file_hash=file_hash,
@@ -411,7 +422,13 @@ async def create_cv_from_json(
     flips the status to ``ready`` once embedding completes — same flow as
     the upload/Celery path.
     """
-    synthetic_text = build_synthetic_text(req.profile)
+    # Accept either the internal profile or a SkillConnect coded payload. When
+    # only the coded payload is given, derive the names profile via the catalog
+    # resolver (skill codes → names); the coded payload is stored verbatim for
+    # echo-back and never pushed to Semantic Search.
+    profile = req.profile or coded_payload_to_profile(req.skillconnect_profile or {}, catalog_store)
+
+    synthetic_text = build_synthetic_text(profile)
     file_hash = hashlib.sha256(synthetic_text.encode()).hexdigest()
     lang = await detect_language(synthetic_text)
 
@@ -420,15 +437,16 @@ async def create_cv_from_json(
         collection_id=req.collection_id,
         external_id=req.external_id,
         file_hash=file_hash,
-        profile=req.profile,
+        profile=profile,
         raw_text=synthetic_text,
         language=lang,
         callback_url=req.callback_url,
+        skillconnect_profile=req.skillconnect_profile,
     )
 
     doc = build_search_document(
         external_id=cv.external_id,
-        profile=req.profile,
+        profile=profile,
         raw_text=synthetic_text,
         language=lang,
     )

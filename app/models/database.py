@@ -40,6 +40,9 @@ class CVProfile(Base):
 
     search_doc_external_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     search_ingest_job_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # Verbatim SkillConnect coded payload (codes, employee{}, etc.) for lossless
+    # echo-back. Never embedded/indexed; the names projection lives in profile_data.
+    skillconnect_profile: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     file_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", index=True)
     callback_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
@@ -108,6 +111,35 @@ class CVAnswerSession(Base):
     total_score: Mapped[float] = mapped_column(nullable=False, default=0.0)
     max_score: Mapped[float] = mapped_column(nullable=False, default=0.0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
+
+
+class Skill(Base):
+    """SkillConnect skill catalog — persistent cache, refreshed from their API."""
+
+    __tablename__ = "skillconnect_skills"
+
+    code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    category: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    external_id: Mapped[int | None] = mapped_column(nullable=True)
+
+
+class Establishment(Base):
+    """SkillConnect establishment catalog — static, seeded/maintained manually."""
+
+    __tablename__ = "skillconnect_establishments"
+
+    code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
+
+
+class Language(Base):
+    """SkillConnect language catalog — static, seeded/maintained manually."""
+
+    __tablename__ = "skillconnect_languages"
+
+    code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
 
 
 # ---------------------------------------------------------------------------

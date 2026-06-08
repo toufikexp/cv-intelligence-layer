@@ -50,7 +50,29 @@ async def lifespan(app: FastAPI):
         log.info("EasyOCR model ready.")
     except Exception as exc:  # never block startup on a pre-warm failure
         log.warning("OCR pre-warm failed (will load on first request): %s", exc)
-    yield
+
+    # SkillConnect catalogs — load from DB + (fail-soft) refresh from API, then
+    # start a periodic refresh. Never block/crash startup on a catalog failure.
+    catalog_task: asyncio.Task[None] | None = None
+    try:
+        from app.config import get_settings
+        from app.services.catalog_refresh import periodic_refresh_loop, refresh_catalog
+
+        settings = get_settings()
+        await refresh_catalog(fetch_api=True)
+        if settings.skillconnect_api_base_url:
+            catalog_task = asyncio.create_task(
+                periodic_refresh_loop(settings.skillconnect_refresh_seconds)
+            )
+        log.info("SkillConnect catalog ready.")
+    except Exception as exc:
+        log.warning("SkillConnect catalog init failed (resolution degraded): %s", exc)
+
+    try:
+        yield
+    finally:
+        if catalog_task is not None:
+            catalog_task.cancel()
 
 
 def create_app() -> FastAPI:
