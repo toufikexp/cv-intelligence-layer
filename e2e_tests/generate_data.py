@@ -472,10 +472,10 @@ UNIVERSITIES_NA = [
     "Université Mohammed V Rabat", "ENSA Casablanca",
 ]
 
-DEGREES_EN = ["Bachelor's", "Master's", "MBA", "Ph.D."]
-DEGREES_FR = ["Licence", "Master", "Ingénieur", "Doctorat", "MBA"]
+DEGREES_EN = ["BACHELOR", "MASTER", "MBA", "DOCTORAT"]
+DEGREES_FR = ["LICENCE", "MASTER", "INGENIEUR", "DOCTORAT", "MBA"]
 
-LANGUAGE_LEVELS = ["native", "fluent", "advanced", "intermediate", "beginner"]
+SCORE_LEVELS = ["BASIC", "INTERMEDIATE", "ADVANCED", "EXPERT", "MASTER"]
 
 ACHIEVEMENT_VERBS_EN = [
     "Designed and implemented", "Led the migration of", "Built",
@@ -628,13 +628,6 @@ def _rand_experience(
     titles = dept_cfg.get(titles_key, dept_cfg["titles_en"])
     skills = dept_cfg.get("skills", [])
 
-    if lang == "fr":
-        locations = FR_LOCATIONS
-    elif lang == "na":
-        locations = NA_LOCATIONS
-    else:
-        locations = EN_LOCATIONS
-
     num_jobs = min(random.randint(2, 6), max(2, total_years // 2))
     current_year = 2025
     entries = []
@@ -655,10 +648,9 @@ def _rand_experience(
         entries.append({
             "company": random.choice(companies),
             "role": random.choice(titles),
-            "start_date": start_str,
-            "end_date": end_str,
+            "startDate": start_str,
+            "endDate": end_str,
             "description": desc,
-            "location": random.choice(locations),
         })
         current_year = start_year
         remaining -= duration
@@ -680,10 +672,10 @@ def _rand_education(lang: str, dept_cfg: dict) -> list[dict]:
 
     for i in range(num):
         entries.append({
-            "institution": random.choice(unis),
-            "degree": random.choice(degrees),
-            "field": random.choice(fields),
-            "year": str(random.randint(2000, 2022)),
+            "establishment": random.choice(unis),
+            "typeEducation": random.choice(degrees),
+            "fieldOfStudy": random.choice(fields),
+            "dateGraduation": str(random.randint(2000, 2022)),
         })
     return entries
 
@@ -691,25 +683,25 @@ def _rand_education(lang: str, dept_cfg: dict) -> list[dict]:
 def _rand_languages(lang: str) -> list[dict]:
     if lang == "fr":
         langs = [
-            {"language": "Français", "level": "native"},
-            {"language": "Anglais", "level": random.choice(["fluent", "advanced", "intermediate"])},
+            {"language": "Français", "proficiency": "NATIVE"},
+            {"language": "Anglais", "proficiency": random.choice(["C2", "C1", "B2"])},
         ]
         if random.random() < 0.3:
-            langs.append({"language": "Espagnol", "level": random.choice(["intermediate", "beginner"])})
+            langs.append({"language": "Espagnol", "proficiency": random.choice(["B1", "A2"])})
     elif lang == "na":
         langs = [
-            {"language": "Arabe", "level": "native"},
-            {"language": "Français", "level": random.choice(["native", "fluent"])},
-            {"language": "Anglais", "level": random.choice(["fluent", "advanced", "intermediate"])},
+            {"language": "Arabe", "proficiency": "NATIVE"},
+            {"language": "Français", "proficiency": random.choice(["NATIVE", "C2"])},
+            {"language": "Anglais", "proficiency": random.choice(["C2", "C1", "B2"])},
         ]
     else:
         langs = [
-            {"language": "English", "level": "native"},
+            {"language": "English", "proficiency": "NATIVE"},
         ]
         if random.random() < 0.4:
-            langs.append({"language": "French", "level": random.choice(["intermediate", "beginner"])})
+            langs.append({"language": "French", "proficiency": random.choice(["B1", "A2"])})
         if random.random() < 0.2:
-            langs.append({"language": "Spanish", "level": random.choice(["advanced", "intermediate"])})
+            langs.append({"language": "Spanish", "proficiency": random.choice(["C1", "B2"])})
     return langs
 
 
@@ -727,7 +719,7 @@ def _rand_achievements(lang: str, count: int) -> list[dict]:
         )
         achievements.append({
             "title": f"{random.choice(verbs)} {random.choice(objects)}",
-            "year": str(random.randint(2016, 2025)) if random.random() > 0.3 else None,
+            "startDate": f"{random.randint(2016, 2025)}-01-01" if random.random() > 0.3 else None,
             "description": desc,
         })
     return achievements
@@ -773,22 +765,23 @@ def generate_cv(dept_name: str, dept_cfg: dict, index: int) -> dict:
     achievements = _rand_achievements(lang, random.randint(2, 5))
 
     profile = {
-        "name": name,
-        "email": email,
-        "phone": phone,
-        "location": location,
-        "current_title": current_title,
+        "employee": {
+            "firstname": first,
+            "lastname": last,
+            "email": email,
+            "phone": phone,
+            "function": current_title,
+            "workingSite": location,
+        },
         "summary": summary,
-        "linkedin_url": f"https://linkedin.com/in/{first.lower().replace('é','e')}-{last.lower().replace(' ','-')}",
-        "github_url": f"https://github.com/{first.lower().replace('é','e')}{last.lower().replace(' ','')}" if dept_name in ("software_engineering", "data_science", "devops", "cybersecurity") and random.random() > 0.3 else None,
-        "portfolio_url": None,
-        "skills": skills,
-        "experience": _rand_experience(dept_cfg, lang, total_years),
-        "education": _rand_education(lang, dept_cfg),
+        "skills": [
+            {"skill": s, "score": random.choice(SCORE_LEVELS)} for s in skills
+        ],
+        "experiences": _rand_experience(dept_cfg, lang, total_years),
+        "educations": _rand_education(lang, dept_cfg),
         "languages": _rand_languages(lang),
-        "certifications": certs,
+        "certifications": [{"title": c} for c in certs],
         "achievements": achievements,
-        "total_experience_years": float(total_years),
     }
 
     return {
@@ -1078,25 +1071,27 @@ def generate_jd(dept_name: str, dept_cfg: dict, index: int) -> dict:
 # ────────────────────────────────────────────────────────────
 # PDF generation
 # ────────────────────────────────────────────────────────────
+def _get_name(profile: dict) -> str:
+    emp = profile.get("employee") or {}
+    return f"{emp.get('firstname', '')} {emp.get('lastname', '')}".strip() or "Unknown"
+
+
 def _profile_to_text(profile: dict, lang: str) -> str:
     lines: list[str] = []
-    lines.append(profile["name"])
-    if profile.get("current_title"):
-        lines.append(profile["current_title"])
+    emp = profile.get("employee") or {}
+    lines.append(_get_name(profile))
+    if emp.get("function"):
+        lines.append(emp["function"])
     lines.append("")
 
     contact_parts = []
-    if profile.get("email"):
-        contact_parts.append(profile["email"])
-    if profile.get("phone"):
-        contact_parts.append(profile["phone"])
-    if profile.get("location"):
-        contact_parts.append(profile["location"])
+    if emp.get("email"):
+        contact_parts.append(emp["email"])
+    if emp.get("phone"):
+        contact_parts.append(emp["phone"])
+    if emp.get("workingSite"):
+        contact_parts.append(emp["workingSite"])
     lines.append(" | ".join(contact_parts))
-    if profile.get("linkedin_url"):
-        lines.append(str(profile["linkedin_url"]))
-    if profile.get("github_url"):
-        lines.append(str(profile["github_url"]))
     lines.append("")
 
     header_summary = "RÉSUMÉ" if lang == "fr" else "SUMMARY"
@@ -1106,8 +1101,8 @@ def _profile_to_text(profile: dict, lang: str) -> str:
 
     header_exp = "EXPÉRIENCE PROFESSIONNELLE" if lang == "fr" else "WORK EXPERIENCE"
     lines.append(header_exp)
-    for exp in profile.get("experience", []):
-        period = f"{exp.get('start_date', '')} – {exp.get('end_date', '')}"
+    for exp in profile.get("experiences", []):
+        period = f"{exp.get('startDate', '')} – {exp.get('endDate', '')}"
         lines.append(f"{exp['company']}")
         lines.append(f"{exp['role']} ({period})")
         if exp.get("description"):
@@ -1116,33 +1111,35 @@ def _profile_to_text(profile: dict, lang: str) -> str:
 
     header_edu = "FORMATION" if lang == "fr" else "EDUCATION"
     lines.append(header_edu)
-    for edu in profile.get("education", []):
-        line = f"{edu['institution']}"
-        if edu.get("degree"):
-            line += f" — {edu['degree']}"
-        if edu.get("field"):
-            line += f" en {edu['field']}" if lang == "fr" else f" in {edu['field']}"
-        if edu.get("year"):
-            line += f" ({edu['year']})"
+    for edu in profile.get("educations", []):
+        line = f"{edu.get('establishment', '')}"
+        if edu.get("typeEducation"):
+            line += f" — {edu['typeEducation']}"
+        if edu.get("fieldOfStudy"):
+            line += f" en {edu['fieldOfStudy']}" if lang == "fr" else f" in {edu['fieldOfStudy']}"
+        if edu.get("dateGraduation"):
+            line += f" ({edu['dateGraduation']})"
         lines.append(line)
     lines.append("")
 
     header_skills = "COMPÉTENCES" if lang == "fr" else "SKILLS"
     lines.append(header_skills)
-    lines.append(", ".join(profile.get("skills", [])))
+    skill_names = [s["skill"] for s in profile.get("skills", []) if isinstance(s, dict) and s.get("skill")]
+    lines.append(", ".join(skill_names))
     lines.append("")
 
     header_lang = "LANGUES" if lang == "fr" else "LANGUAGES"
     lines.append(header_lang)
     for l_entry in profile.get("languages", []):
-        lines.append(f"{l_entry['language']}: {l_entry['level']}")
+        lines.append(f"{l_entry['language']}: {l_entry.get('proficiency', '')}")
     lines.append("")
 
     if profile.get("certifications"):
         header_cert = "CERTIFICATIONS" if lang == "fr" else "CERTIFICATIONS"
         lines.append(header_cert)
         for c in profile["certifications"]:
-            lines.append(f"- {c}")
+            title = c["title"] if isinstance(c, dict) else c
+            lines.append(f"- {title}")
         lines.append("")
 
     if profile.get("achievements"):
@@ -1150,8 +1147,8 @@ def _profile_to_text(profile: dict, lang: str) -> str:
         lines.append(header_ach)
         for a in profile["achievements"]:
             line = a["title"]
-            if a.get("year"):
-                line += f" ({a['year']})"
+            if a.get("startDate"):
+                line += f" ({a['startDate'][:4]})"
             lines.append(f"- {line}")
             if a.get("description"):
                 lines.append(f"  {a['description']}")
@@ -1319,13 +1316,13 @@ def main() -> None:
     print(f"Generating {pdf_count} PDF files...")
     for i in range(pdf_count):
         cv = all_cvs[i]
-        safe_name = cv["profile"]["name"].replace(" ", "_").replace("'", "")
+        safe_name = _get_name(cv["profile"]).replace(" ", "_").replace("'", "")
         filename = f"cv_{i+1:03d}_{safe_name}.pdf"
         pdf_path = OUTPUT_DIR / "pdfs" / filename
         try:
             generate_pdf(cv, pdf_path)
         except Exception as e:
-            print(f"  ⚠ Failed to generate PDF for {cv['profile']['name']}: {e}")
+            print(f"  ⚠ Failed to generate PDF for {_get_name(cv['profile'])}: {e}")
             continue
 
     pdf_files = list((OUTPUT_DIR / "pdfs").glob("*.pdf"))
@@ -1342,13 +1339,13 @@ def main() -> None:
         print(f"Generating {img_count} image-only PDFs at {args.image_dpi} DPI (OCR path)...")
         for i in range(img_count):
             cv = all_cvs[offset + i]
-            safe_name = cv["profile"]["name"].replace(" ", "_").replace("'", "")
+            safe_name = _get_name(cv["profile"]).replace(" ", "_").replace("'", "")
             filename = f"cv_{offset + i + 1:03d}_{safe_name}_ocr.pdf"
             out_path = img_pdf_dir / filename
             try:
                 generate_image_pdf(cv, out_path, dpi=args.image_dpi)
             except Exception as e:
-                print(f"  ⚠ Failed to generate image PDF for {cv['profile']['name']}: {e}")
+                print(f"  ⚠ Failed to generate image PDF for {_get_name(cv['profile'])}: {e}")
                 continue
         img_files = list(img_pdf_dir.glob("*_ocr.pdf"))
         print(f"  → {img_pdf_dir} ({len(img_files)} image PDFs added)")

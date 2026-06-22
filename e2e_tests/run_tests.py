@@ -272,7 +272,8 @@ def test_extract(
         res, data = client.extract_cv(pdf_path)
         metrics.results.append(res)
         status = "✓" if res.success else "✗"
-        name = data["profile"]["name"] if data else "N/A"
+        emp = (data.get("profile") or {}).get("employee") or {} if data else {}
+        name = f"{emp.get('firstname', '')} {emp.get('lastname', '')}".strip() or "N/A"
         print(f"    [{i}/{len(pdf_files)}] {status} {pdf_path.name} → {name} ({res.duration_ms:.0f}ms)")
 
     return metrics
@@ -316,10 +317,10 @@ def test_update(
 
     patches = [
         {"summary": "Updated summary via E2E test — experienced professional with diverse skills."},
-        {"skills": ["Python", "Leadership", "Strategic Planning", "Communication"]},
-        {"location": "Remote"},
-        {"current_title": "Senior Consultant"},
-        {"phone": "+33 6 00 00 00 00"},
+        {"skills": [{"skill": "Python", "score": "ADVANCED"}, {"skill": "Leadership", "score": "EXPERT"}]},
+        {"employee": {"workingSite": "Remote"}},
+        {"employee": {"function": "Senior Consultant"}},
+        {"employee": {"phone": "+33 6 00 00 00 00"}},
     ]
 
     print(f"  Updating {len(to_update)} candidates...")
