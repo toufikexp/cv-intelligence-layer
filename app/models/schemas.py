@@ -52,7 +52,6 @@ class EmployeeInfo(BaseModel):
 class SkillEntry(BaseModel):
     skill: str | None = None
     score: str | None = None
-    name: str | None = None
 
 
 class ExperienceEntry(BaseModel):

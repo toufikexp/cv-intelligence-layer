@@ -5,6 +5,7 @@ from datetime import date
 from typing import Any
 
 from app.models.schemas import CandidateProfile
+from app.services.catalog_store import catalog_store
 
 
 @dataclass(frozen=True)
@@ -12,6 +13,23 @@ class SearchDocument:
     external_id: str
     content: str
     metadata: dict[str, Any]
+
+
+def _skill_names(profile: CandidateProfile) -> list[str]:
+    """Resolve catalog skill codes to their human-readable names.
+
+    Semantic Search receives NAMES, never codes. Skills are stored as codes
+    (``skill``); we look up the canonical name from the catalog at index time.
+    Unresolved codes are dropped rather than leaking a code into Search.
+    """
+    names: list[str] = []
+    for s in profile.skills:
+        if not s.skill:
+            continue
+        name = catalog_store.skill_name(s.skill)
+        if name:
+            names.append(name)
+    return names
 
 
 def _estimate_experience_years(profile: CandidateProfile) -> int:
@@ -67,7 +85,7 @@ def build_synthetic_text(profile: CandidateProfile) -> str:
     if profile.summary:
         parts.append(f"\nSummary:\n{profile.summary}")
 
-    skill_names = [s.name for s in profile.skills if s.name]
+    skill_names = _skill_names(profile)
     if skill_names:
         parts.append(f"\nSkills: {', '.join(skill_names)}")
 
@@ -133,7 +151,7 @@ def build_search_document(
             name = f"{profile.employee.firstname or ''} {profile.employee.lastname or ''}".strip()
             content = name or ""
 
-    skill_names = [s.name for s in profile.skills if s.name]
+    skill_names = _skill_names(profile)
     experience_years = _estimate_experience_years(profile)
 
     edu = profile.educations

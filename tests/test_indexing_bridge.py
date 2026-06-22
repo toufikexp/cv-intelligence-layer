@@ -112,9 +112,9 @@ def test_build_synthetic_text_full_profile() -> None:
         ),
         summary="8 years experience in data engineering.",
         skills=[
-            SkillEntry(name="Python"),
-            SkillEntry(name="Spark"),
-            SkillEntry(name="PostgreSQL"),
+            SkillEntry(skill="Python"),
+            SkillEntry(skill="Spark"),
+            SkillEntry(skill="PostgreSQL"),
         ],
         experiences=[
             ExperienceEntry(
@@ -175,6 +175,6 @@ def test_build_synthetic_text_with_name_only() -> None:
 
 def test_build_synthetic_text_deterministic() -> None:
     profile = CandidateProfile(
-        skills=[SkillEntry(name="A"), SkillEntry(name="B")],
+        skills=[SkillEntry(skill="A"), SkillEntry(skill="B")],
     )
     assert build_synthetic_text(profile) == build_synthetic_text(profile)

@@ -93,11 +93,11 @@ async def test_rank_multiple_sorted(
 
     profile_a = CandidateProfile(
         employee=EmployeeInfo(firstname="Alice", lastname="A"),
-        skills=[SkillEntry(name="Python")],
+        skills=[SkillEntry(skill="Python")],
     )
     profile_b = CandidateProfile(
         employee=EmployeeInfo(firstname="Bob", lastname="B"),
-        skills=[SkillEntry(name="Java")],
+        skills=[SkillEntry(skill="Java")],
     )
     cv_a = _make_cv("hash_a", profile_a)
     cv_b = _make_cv("hash_b", profile_b)

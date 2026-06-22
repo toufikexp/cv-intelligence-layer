@@ -20,6 +20,41 @@ from app.models.schemas import (
 )
 
 
+# Skill codes used across the test suite. The catalog is identity-mapped
+# (code == name) so code↔name resolution exercises the real lookup path while
+# keeping assertions readable. Real code≠name resolution is covered by
+# test_catalog_store / the resolution test in test_entity_extractor.
+TEST_SKILL_NAMES = [
+    "Python", "FastAPI", "PostgreSQL", "Docker", "AWS", "SQL",
+    "Spark", "Airflow", "Java", "A", "B",
+]
+
+
+@pytest.fixture(autouse=True)
+def seed_catalog_store():
+    """Populate the process-wide catalog_store with identity-mapped test skills.
+
+    Skills are stored as codes; indexing/ranking/search resolve code→name from
+    the catalog. This fixture makes that resolution work in unit tests without a
+    live DB, and restores the store afterwards so tests stay isolated.
+    """
+    from app.services.catalog_store import catalog_store, normalize
+
+    saved = (
+        catalog_store._skill_code_to_name,
+        catalog_store._skill_norm_to_code,
+    )
+    catalog_store._skill_code_to_name = {n: n for n in TEST_SKILL_NAMES}
+    catalog_store._skill_norm_to_code = {normalize(n): n for n in TEST_SKILL_NAMES}
+    try:
+        yield
+    finally:
+        (
+            catalog_store._skill_code_to_name,
+            catalog_store._skill_norm_to_code,
+        ) = saved
+
+
 @pytest.fixture()
 def fake_candidate_profile() -> CandidateProfile:
     """Factory for a realistic CandidateProfile."""
@@ -34,11 +69,11 @@ def fake_candidate_profile() -> CandidateProfile:
             region="Algiers",
         ),
         skills=[
-            SkillEntry(name="Python", score="ADVANCED"),
-            SkillEntry(name="FastAPI", score="ADVANCED"),
-            SkillEntry(name="PostgreSQL", score="INTERMEDIATE"),
-            SkillEntry(name="Docker", score="INTERMEDIATE"),
-            SkillEntry(name="AWS", score="INTERMEDIATE"),
+            SkillEntry(skill="Python", score="ADVANCED"),
+            SkillEntry(skill="FastAPI", score="ADVANCED"),
+            SkillEntry(skill="PostgreSQL", score="INTERMEDIATE"),
+            SkillEntry(skill="Docker", score="INTERMEDIATE"),
+            SkillEntry(skill="AWS", score="INTERMEDIATE"),
         ],
         experiences=[
             ExperienceEntry(

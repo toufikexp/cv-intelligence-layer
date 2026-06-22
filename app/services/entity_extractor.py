@@ -456,6 +456,22 @@ class EntityExtractor:
 
         data = _normalize_llm_output(data)
 
+        # Skills: Gemini returns canonical *names* from the controlled vocabulary
+        # (codes never reach the LLM). Resolve each name to its catalog code here
+        # and keep ONLY catalog matches — the stored skill is {skill: code, score},
+        # no free-text name. Off-catalog names (if any slipped through) are dropped.
+        from app.services.catalog_store import catalog_store
+
+        coded_skills: list[dict[str, Any]] = []
+        for s in data.get("skills", []):
+            if not isinstance(s, dict):
+                continue
+            name = s.get("name")
+            code = catalog_store.skill_code(name) if name else None
+            if code:
+                coded_skills.append({"skill": code, "score": s.get("score")})
+        data["skills"] = coded_skills
+
         # Build the employee block from local PII extraction (never from Gemini)
         name = pii.get("name") or "Unknown"
         firstname, lastname = _split_name(name)

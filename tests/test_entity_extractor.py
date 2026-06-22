@@ -486,6 +486,43 @@ async def test_name_spacy_only_ignores_gemini(mock_llm_client: AsyncMock) -> Non
 
 
 @pytest.mark.asyncio
+async def test_extractor_resolves_skill_codes_and_drops_off_catalog() -> None:
+    """Gemini returns canonical skill NAMES; the extractor resolves them to catalog
+    codes ({skill: code, score}) and drops any name not in the catalog. No free-text
+    `name` survives on the stored skill."""
+    from app.services.catalog_store import catalog_store, normalize
+
+    catalog_store._skill_code_to_name = {"SK1": "Python"}
+    catalog_store._skill_norm_to_code = {normalize("Python"): "SK1"}
+
+    llm = AsyncMock()
+
+    async def _complete_json(*, prompt_key: str, variables: dict, **kwargs: object) -> dict:
+        return {
+            "summary": "dev",
+            "function": "Engineer",
+            "skills": [
+                {"name": "Python", "score": "EXPERT"},
+                {"name": "Rust", "score": "BASIC"},  # off-catalog → dropped
+            ],
+            "experiences": [],
+            "educations": [],
+            "languages": [],
+        }
+
+    llm.complete_json = _complete_json
+    extractor = EntityExtractor(llm)
+    profile = await extractor.extract(
+        cv_text="EXPERIENCES\nEngineer at Acme\nPython, Rust",
+        detected_language="en",
+        extraction_notes="Clean",
+    )
+
+    assert [(s.skill, s.score) for s in profile.skills] == [("SK1", "EXPERT")]
+    assert not hasattr(profile.skills[0], "name")
+
+
+@pytest.mark.asyncio
 async def test_phone_year_range_not_extracted(mock_llm_client: AsyncMock) -> None:
     """Year ranges like 2015-2017 must never be used as phone numbers."""
     extractor = EntityExtractor(mock_llm_client)

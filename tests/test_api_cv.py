@@ -50,7 +50,7 @@ def _ready_cv(**overrides: object) -> CVProfile:
                 "phone": "+212600000000",
                 "function": "Data Engineer",
             },
-            "skills": [{"name": "Python", "score": "ADVANCED"}],
+            "skills": [{"skill": "Python", "score": "ADVANCED"}],
             "experiences": [],
             "educations": [],
             "languages": [],
@@ -273,9 +273,9 @@ async def test_apply_profile_patch_merges_and_reindexes_sync() -> None:
             patch=CandidateProfilePatch(
                 summary="Senior Data Engineer profile.",
                 skills=[
-                    SkillEntry(name="Python", score="EXPERT"),
-                    SkillEntry(name="Spark", score="ADVANCED"),
-                    SkillEntry(name="Airflow", score="INTERMEDIATE"),
+                    SkillEntry(skill="Python", score="EXPERT"),
+                    SkillEntry(skill="Spark", score="ADVANCED"),
+                    SkillEntry(skill="Airflow", score="INTERMEDIATE"),
                 ],
             ),
         )
@@ -381,8 +381,8 @@ def _make_create_request(**overrides: object) -> CandidateCreateRequest:
                 email="amina@example.com",
             ),
             skills=[
-                SkillEntry(name="Python", score="ADVANCED"),
-                SkillEntry(name="Spark", score="INTERMEDIATE"),
+                SkillEntry(skill="Python", score="ADVANCED"),
+                SkillEntry(skill="Spark", score="INTERMEDIATE"),
             ],
         ),
     )
@@ -579,8 +579,8 @@ def _extracted_profile() -> CandidateProfile:
             email="amina@example.com",
         ),
         skills=[
-            SkillEntry(name="Python", score="ADVANCED"),
-            SkillEntry(name="Spark", score="INTERMEDIATE"),
+            SkillEntry(skill="Python", score="ADVANCED"),
+            SkillEntry(skill="Spark", score="INTERMEDIATE"),
         ],
     )
 
@@ -756,55 +756,23 @@ async def test_extract_cv_ocr_branch_invokes_ocr() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Enrichment: skill codes resolved, SS gets names only
+# Indexing: Semantic Search receives skill NAMES (resolved from codes), never codes
 # ---------------------------------------------------------------------------
 
-def _seeded_catalog():
-    from app.services.catalog_store import CatalogStore, normalize
+def test_search_document_resolves_codes_to_names() -> None:
+    from app.services.catalog_store import catalog_store, normalize
+    from app.services.indexing_bridge import build_search_document
 
-    store = CatalogStore()
-    skills = {"SK1": "Python", "SK2": "Apache Spark"}
-    store._skill_code_to_name = dict(skills)
-    store._skill_norm_to_code = {normalize(n): c for c, n in skills.items()}
-    return store
-
-
-@pytest.mark.asyncio
-async def test_extract_cv_enriches_skill_codes() -> None:
-    mock_path = MagicMock(spec=Path)
-    fake_processor = MagicMock()
-    long_text = (
-        "Amina Bensaid is a senior data engineer with eight years of experience "
-        "building data pipelines in Python and Apache Spark, designing scoring "
-        "models, and deploying Kubernetes workloads for technology companies "
-        "across Algiers and Paris. She has led teams and delivered cloud "
-        "migrations end to end."
-    )
-    fake_processor.extract = AsyncMock(
-        return_value=ExtractedText(text=long_text, method="text_extraction", needs_ocr=False)
-    )
+    catalog_store._skill_code_to_name = {"SK1": "Python", "SK2": "Apache Spark"}
+    catalog_store._skill_norm_to_code = {
+        normalize(n): c for c, n in catalog_store._skill_code_to_name.items()
+    }
     profile = CandidateProfile(
         employee=EmployeeInfo(firstname="Amina"),
-        skills=[
-            SkillEntry(name="Python"),
-            SkillEntry(name="Rust"),
-        ],
+        skills=[SkillEntry(skill="SK1"), SkillEntry(skill="SK2"), SkillEntry(skill="OFF")],
     )
-    fake_extractor = MagicMock()
-    fake_extractor.extract = AsyncMock(return_value=profile)
-
-    with (
-        patch("app.api.cv.catalog_store", _seeded_catalog()),
-        patch("app.api.cv.validate_and_persist_upload",
-              AsyncMock(return_value=(mock_path, "h"))),
-        patch("app.api.cv.DocumentProcessor", return_value=fake_processor),
-        patch("app.api.cv.detect_language", AsyncMock(return_value="en")),
-        patch("app.api.cv.get_llm_client", return_value=MagicMock()),
-        patch("app.api.cv.EntityExtractor", return_value=fake_extractor),
-        patch("app.api.cv.ocr_pdf_pages"),
-    ):
-        result = await extract_cv(file=_fake_upload(), _="test-key")
-
-    skills_by_name = {s.name: s.skill for s in result.profile.skills}
-    assert skills_by_name["Python"] == "SK1"
-    assert skills_by_name["Rust"] is None
+    doc = build_search_document(
+        external_id="ext-1", profile=profile, raw_text="body", language="en"
+    )
+    # Names resolved from codes; off-catalog code dropped; no codes leak to SS.
+    assert doc.metadata["skills"] == ["Python", "Apache Spark"]

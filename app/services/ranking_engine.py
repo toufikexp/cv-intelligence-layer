@@ -87,7 +87,7 @@ class RankingEngine:
 
             emp = profile.employee
             cand_name = f"{emp.firstname or ''} {emp.lastname or ''}".strip() if emp else ""
-            from app.services.indexing_bridge import _estimate_experience_years
+            from app.services.indexing_bridge import _estimate_experience_years, _skill_names
             exp_years = _estimate_experience_years(profile)
 
             async with sem:
@@ -105,7 +105,7 @@ class RankingEngine:
                         "current_title": (emp.function or "") if emp else "",
                         "location": (emp.region or emp.workingSite or "") if emp else "",
                         "total_experience_years": exp_years,
-                        "skills": [s.name or "" for s in profile.skills],
+                        "skills": _skill_names(profile),
                         "languages": [
                             f"{lg.language or ''} ({lg.proficiency or ''})"
                             for lg in profile.languages

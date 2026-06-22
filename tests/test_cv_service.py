@@ -279,7 +279,7 @@ async def test_update_profile_data_writes_profile_and_denormalized_fields() -> N
             email="new@example.com",
             phone="+20000000000",
         ),
-        skills=[SkillEntry(name="Python"), SkillEntry(name="Spark")],
+        skills=[SkillEntry(skill="Python"), SkillEntry(skill="Spark")],
     )
     mock_db = AsyncMock()
 
@@ -358,7 +358,7 @@ async def test_create_cv_for_indexing_success() -> None:
             lastname="Bensaid",
             email="amina@example.com",
         ),
-        skills=[SkillEntry(name="Python"), SkillEntry(name="Spark")],
+        skills=[SkillEntry(skill="Python"), SkillEntry(skill="Spark")],
     )
 
     svc = CVService()

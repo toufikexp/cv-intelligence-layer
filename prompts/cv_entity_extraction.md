@@ -17,7 +17,7 @@ Return a JSON object matching this exact schema:
   "function": "Most recent job title / function (string or null)",
   "skills": [
     {
-      "name": "Normalized skill name (e.g., 'Python', 'Project Management', 'SQL')",
+      "name": "Skill name — MUST be copied EXACTLY from the controlled vocabulary list below. Skills not in that list are NOT allowed.",
       "score": "Proficiency level: BASIC | INTERMEDIATE | ADVANCED | EXPERT | MASTER"
     }
   ],
@@ -72,7 +72,7 @@ Rules:
 6. Achievements are **discrete, named projects/realizations** that stand on their own — typically found under headings like "Projets", "Réalisations", "Key Projects", "Achievements", "Projets notables". Do NOT duplicate generic job responsibilities already captured in `experiences[].description`. If the CV has no such section and no clearly-named project, return an empty array.
 7. Return ONLY the JSON object. No markdown backticks, no explanation text.
 8. Personal information (name, email, phone, location, URLs, date of birth) has been redacted for privacy. Placeholders like [REDACTED_NAME], [REDACTED_EMAIL], [REDACTED_PHONE], [REDACTED_LOCATION], [REDACTED_URL], [REDACTED_DOB] may appear in the text. Do NOT try to extract personal information — focus on function, summary, skills, experiences, educations, languages, certifications, and achievements.
-9. Skills vocabulary: a controlled list of canonical skill names is provided below. When a skill you extract clearly matches one of these names, output the canonical name **exactly** as listed. If an extracted skill is not in the list, keep your own normalized name — never invent or force a match.
+9. Skills vocabulary (STRICT — closed list): a controlled list of canonical skill names is provided below. Return ONLY skills whose name appears in that list, copied **exactly** as written (same spelling, casing, punctuation). If a skill in the CV is **not** in the list, **OMIT it entirely** — do not output it, do not invent a near-match, do not keep the CV's own wording. It is correct and expected for the `skills` array to be short or empty when the CV's skills are not in the vocabulary. Never output a skill that is not in the list.
 10. Skill score: for each skill, assess proficiency from the CV context using ONLY these values: BASIC, INTERMEDIATE, ADVANCED, EXPERT, MASTER. Base your assessment on evidence in the CV (years of use, project depth, certifications). If uncertain, use INTERMEDIATE.
 11. Language proficiency: assess using ONLY these CEFR values: A1, A2, B1, B2, C1, C2, NATIVE. Map common descriptions: "natif/maternelle" → NATIVE, "courant/fluent" → C1, "avancé/advanced" → B2, "intermédiaire/intermediate" → B1, "débutant/beginner/basic" → A1.
 12. Education type: use ONLY these values: LICENCE, MASTER, DOCTORAT, BACHELOR, MBA, INGENIEUR, BTS, DUT, FORMATION_PROFESSIONNELLE. Map common terms: "BSc/BA" → BACHELOR, "MSc/MA" → MASTER, "PhD" → DOCTORAT, "Diplôme d'ingénieur" → INGENIEUR.
@@ -94,6 +94,8 @@ Predefined establishments (use exact name when the CV's institution matches):
 ```
 
 ## Few-Shot Examples
+
+> Note: the `skills` arrays in the examples below assume every skill shown is present in the controlled vocabulary. At runtime, apply rule 9 strictly — output a skill ONLY if it appears in the vocabulary list, otherwise omit it.
 
 ### Example 1: French CV
 

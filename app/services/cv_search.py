@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import CVProfile
 from app.models.schemas import CVSearchRequest, CVSearchResponse, CVSearchResult
+from app.services.catalog_store import catalog_store
 from app.services.search_client import SemanticSearchClient
 
 
@@ -82,11 +83,15 @@ class CVSearchService:
                 location = emp.get("workingSite") or emp.get("region")
                 raw_skills = profile_data.get("skills") or []
                 if isinstance(raw_skills, list):
-                    skills = [
-                        (s.get("name") if isinstance(s, dict) else s)
-                        for s in raw_skills
-                        if (isinstance(s, dict) and s.get("name")) or isinstance(s, str)
-                    ]
+                    resolved: list[str] = []
+                    for s in raw_skills:
+                        code = s.get("skill") if isinstance(s, dict) else None
+                        if not code:
+                            continue
+                        name = catalog_store.skill_name(str(code))
+                        if name:
+                            resolved.append(name)
+                    skills = resolved
             if meta.get("skills") is not None:
                 skills = meta.get("skills")
             if meta.get("experience_years") is not None:
