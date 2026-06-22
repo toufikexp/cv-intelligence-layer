@@ -67,6 +67,23 @@ def test_skill_names_block_placeholder_when_empty() -> None:
 
 
 @pytest.mark.asyncio
+async def test_languages_block_is_names_only_sorted() -> None:
+    store = CatalogStore()
+    db = _mock_db(
+        skills=[],
+        estabs=[],
+        langs=[SimpleNamespace(code="fr", name="Français"), SimpleNamespace(code="en", name="Anglais")],
+    )
+    await store.load_from_db(db)
+    block = store.languages_block()
+    assert block == "Anglais\nFrançais"  # sorted, names only — no codes
+
+
+def test_languages_block_placeholder_when_empty() -> None:
+    assert CatalogStore().languages_block() == "(list unavailable)"
+
+
+@pytest.mark.asyncio
 async def test_fingerprint_changes_with_catalog_content() -> None:
     store = CatalogStore()
     await store.load_from_db(_mock_db([SimpleNamespace(code="SK1", name="Python")], [], []))

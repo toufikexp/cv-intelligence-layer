@@ -40,7 +40,7 @@ Return a JSON object matching this exact schema:
   ],
   "languages": [
     {
-      "language": "Language name in English (string)",
+      "language": "Language name — pick from the predefined languages list below and copy the name EXACTLY as written. If the CV's language is not in the list, use the language name in English.",
       "proficiency": "A1 | A2 | B1 | B2 | C1 | C2 | NATIVE"
     }
   ],
@@ -74,7 +74,7 @@ Rules:
 8. Personal information (name, email, phone, location, URLs, date of birth) has been redacted for privacy. Placeholders like [REDACTED_NAME], [REDACTED_EMAIL], [REDACTED_PHONE], [REDACTED_LOCATION], [REDACTED_URL], [REDACTED_DOB] may appear in the text. Do NOT try to extract personal information — focus on function, summary, skills, experiences, educations, languages, certifications, and achievements.
 9. Skills vocabulary (STRICT — closed list): a controlled list of canonical skill names is provided below. Return ONLY skills whose name appears in that list, copied **exactly** as written (same spelling, casing, punctuation). If a skill in the CV is **not** in the list, **OMIT it entirely** — do not output it, do not invent a near-match, do not keep the CV's own wording. It is correct and expected for the `skills` array to be short or empty when the CV's skills are not in the vocabulary. Never output a skill that is not in the list.
 10. Skill score: for each skill, assess proficiency from the CV context using ONLY these values: BASIC, INTERMEDIATE, ADVANCED, EXPERT, MASTER. Base your assessment on evidence in the CV (years of use, project depth, certifications). If uncertain, use INTERMEDIATE.
-11. Language proficiency: assess using ONLY these CEFR values: A1, A2, B1, B2, C1, C2, NATIVE. Map common descriptions: "natif/maternelle" → NATIVE, "courant/fluent" → C1, "avancé/advanced" → B2, "intermédiaire/intermediate" → B1, "débutant/beginner/basic" → A1.
+11. Languages: a predefined list of language names is provided below. For each language in the CV, output the name copied **exactly** from that list when it matches; if the CV's language is not in the list, output its English name. Assess proficiency using ONLY these CEFR values: A1, A2, B1, B2, C1, C2, NATIVE. Map common descriptions: "natif/maternelle" → NATIVE, "courant/fluent" → C1, "avancé/advanced" → B2, "intermédiaire/intermediate" → B1, "débutant/beginner/basic" → A1.
 12. Education type: use ONLY these values: LICENCE, MASTER, DOCTORAT, BACHELOR, MBA, INGENIEUR, BTS, DUT, FORMATION_PROFESSIONNELLE. Map common terms: "BSc/BA" → BACHELOR, "MSc/MA" → MASTER, "PhD" → DOCTORAT, "Diplôme d'ingénieur" → INGENIEUR.
 13. Establishment: pick from the predefined establishments list below when the CV's institution clearly matches one. If no match, use the institution name exactly as written in the CV.
 
@@ -83,6 +83,9 @@ Controlled skill vocabulary (canonical names; use exact spelling when a match is
 
 Predefined establishments (use exact name when the CV's institution matches):
 {establishments_list}
+
+Predefined languages (copy the name exactly when the CV's language matches):
+{languages_list}
 
 <<<CV_INPUT>>>
 **CV Language**: {detected_language}

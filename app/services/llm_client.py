@@ -162,8 +162,9 @@ class LLMClient:
     ) -> dict[str, Any]:
         """Inject catalog data into extraction prompt variables.
 
-        Fills ``{skills_catalog}`` and ``{establishments_list}`` from the
-        process-wide catalog store when not already supplied by the caller.
+        Fills ``{skills_catalog}``, ``{establishments_list}`` and
+        ``{languages_list}`` from the process-wide catalog store when not
+        already supplied by the caller.
         """
         if prompt_key != _EXTRACTION_PROMPT_KEY:
             return variables
@@ -174,6 +175,8 @@ class LLMClient:
             extra["skills_catalog"] = catalog_store.skill_names_block()
         if "{establishments_list}" in template and "establishments_list" not in variables:
             extra["establishments_list"] = catalog_store.establishments_block()
+        if "{languages_list}" in template and "languages_list" not in variables:
+            extra["languages_list"] = catalog_store.languages_block()
         if not extra:
             return variables
         return {**variables, **extra}

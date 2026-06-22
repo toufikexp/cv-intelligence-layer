@@ -77,6 +77,15 @@ class CatalogStore:
         names = sorted({name for name in self._estab_code_to_name.values()})
         return "\n".join(names) if names else "(list unavailable)"
 
+    def languages_block(self) -> str:
+        """Newline-joined, sorted language *names* for the Gemini prompt.
+
+        Names only — the LLM picks a canonical name from this list and the
+        languageCode is resolved deterministically downstream from the name.
+        """
+        names = sorted({name for name in self._lang_code_to_name.values()})
+        return "\n".join(names) if names else "(list unavailable)"
+
     @property
     def fingerprint(self) -> str:
         return self._fingerprint
