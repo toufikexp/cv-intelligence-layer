@@ -83,7 +83,14 @@ class RankingEngine:
             cv = cvs.get(ext_id)
             if not cv or not cv.profile_data:
                 return None
-            profile = CandidateProfile.model_validate(cv.profile_data, strict=False)
+            try:
+                profile = CandidateProfile.model_validate(cv.profile_data, strict=False)
+            except Exception:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Skipping candidate %s: profile_data validation failed", ext_id
+                )
+                return None
 
             emp = profile.employee
             cand_name = f"{emp.firstname or ''} {emp.lastname or ''}".strip() if emp else ""
