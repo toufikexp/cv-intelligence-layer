@@ -41,6 +41,15 @@ def test_skill_codes_unique_and_nonblank(seed) -> None:
     assert all(code and name for code, name, *_ in seed.SKILLS)
 
 
+def test_skill_name_is_never_the_code(seed) -> None:
+    # Regression guard for the 0006 column-shift bug: 121 of 221 rows had been
+    # seeded with name == code (e.g. ``DATA_AI_ML`` instead of the real name),
+    # which silently broke catalog resolution. The name must be the human-
+    # readable label, never the code.
+    offenders = [code for code, name, *_ in seed.SKILLS if code == name]
+    assert not offenders, f"{len(offenders)} skills have name == code: {offenders[:10]}"
+
+
 def test_establishment_codes_unique_and_nonblank(seed) -> None:
     codes = [code for code, _ in seed.ESTABLISHMENTS]
     assert len(set(codes)) == len(codes)
