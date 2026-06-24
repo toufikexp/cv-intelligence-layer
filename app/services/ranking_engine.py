@@ -94,7 +94,11 @@ class RankingEngine:
 
             emp = profile.employee
             cand_name = f"{emp.firstname or ''} {emp.lastname or ''}".strip() if emp else ""
-            from app.services.indexing_bridge import _estimate_experience_years, _skill_names
+            from app.services.indexing_bridge import (
+                _establishment_label,
+                _estimate_experience_years,
+                _skill_names,
+            )
             exp_years = _estimate_experience_years(profile)
 
             async with sem:
@@ -122,7 +126,7 @@ class RankingEngine:
                             for e in profile.experiences
                         ),
                         "education_details": "\n".join(
-                            f"- {e.typeEducation or ''} {e.fieldOfStudy or ''} — {e.establishment or ''} ({e.dateGraduation or ''})"
+                            f"- {e.typeEducation or ''} {e.fieldOfStudy or ''} — {_establishment_label(e.institution, e.establishment)} ({e.dateGraduation or ''})"
                             for e in profile.educations
                         ),
                         "achievements_details": "\n".join(

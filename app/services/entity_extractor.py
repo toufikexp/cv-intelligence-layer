@@ -279,18 +279,20 @@ def _normalize_llm_output(data: dict[str, Any]) -> dict[str, Any]:
             if isinstance(v, list):
                 for s in v:
                     if isinstance(s, str) and s.strip():
-                        flat.append({"name": s.strip(), "score": None})
+                        flat.append({"skill": s.strip(), "score": None})
                     elif isinstance(s, dict):
+                        if "skill" not in s and "name" in s:
+                            s["skill"] = s.pop("name")
                         flat.append(s)
         data["skills"] = flat
     elif isinstance(skills, list):
         normalized_skills: list[dict[str, Any]] = []
         for s in skills:
             if isinstance(s, str) and s.strip():
-                normalized_skills.append({"name": s.strip(), "score": None})
+                normalized_skills.append({"skill": s.strip(), "score": None})
             elif isinstance(s, dict):
-                if "name" not in s and "skill" in s:
-                    s["name"] = s.pop("skill")
+                if "skill" not in s and "name" in s:
+                    s["skill"] = s.pop("name")
                 normalized_skills.append(s)
         data["skills"] = normalized_skills
     elif skills is None:
@@ -332,13 +334,18 @@ def _normalize_llm_output(data: dict[str, Any]) -> dict[str, Any]:
         for edu in educations:
             if not isinstance(edu, dict):
                 continue
-            if "establishment" not in edu:
-                edu["establishment"] = (
-                    edu.pop("institution", None)
-                    or edu.pop("school", None)
+            # institution = free-text school name (kept as written on the CV);
+            # establishment = catalog CODE, resolved later by enrich_profile.
+            if not edu.get("institution"):
+                edu["institution"] = (
+                    edu.pop("school", None)
                     or edu.pop("university", None)
+                    # Gemini may put the name in 'establishment'; treat it as the
+                    # free-text name — enrich_profile resolves the code from it.
+                    or edu.pop("establishment", None)
                     or ""
                 )
+            edu.pop("establishment", None)
             if "fieldOfStudy" not in edu and "field_of_study" in edu:
                 edu["fieldOfStudy"] = edu.pop("field_of_study")
             if "fieldOfStudy" not in edu and "field" in edu:
@@ -347,7 +354,7 @@ def _normalize_llm_output(data: dict[str, Any]) -> dict[str, Any]:
                 edu["typeEducation"] = edu.pop("degree")
             if "dateGraduation" not in edu and "year" in edu:
                 edu["dateGraduation"] = edu.pop("year")
-            if not edu.get("establishment"):
+            if not edu.get("institution"):
                 continue
             normalized_edu.append(edu)
         data["educations"] = normalized_edu
@@ -456,21 +463,11 @@ class EntityExtractor:
 
         data = _normalize_llm_output(data)
 
-        # Skills: Gemini returns canonical *names* from the controlled vocabulary
-        # (codes never reach the LLM). Resolve each name to its catalog code here
-        # and keep ONLY catalog matches — the stored skill is {skill: code, score},
-        # no free-text name. Off-catalog names (if any slipped through) are dropped.
-        from app.services.catalog_store import catalog_store
-
-        coded_skills: list[dict[str, Any]] = []
-        for s in data.get("skills", []):
-            if not isinstance(s, dict):
-                continue
-            name = s.get("name")
-            code = catalog_store.skill_code(name) if name else None
-            if code:
-                coded_skills.append({"skill": code, "score": s.get("score")})
-        data["skills"] = coded_skills
+        # Skills/establishments/languages are resolved against the catalog by
+        # enrich_profile (the single resolution chokepoint), called by every
+        # caller of extract() after this returns. Gemini returns canonical
+        # *names* (codes never reach the LLM); enrich_profile converts names to
+        # codes and drops anything off-catalog.
 
         # Build the employee block from local PII extraction (never from Gemini)
         name = pii.get("name") or "Unknown"

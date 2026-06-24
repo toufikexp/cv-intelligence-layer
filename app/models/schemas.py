@@ -4,12 +4,36 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ErrorResponse(BaseModel):
     detail: str
     code: str
+
+
+# Authoritative enums from skillConnect_details_v_1.0.docx (the "Enum Name" table).
+# typeEducation: the catalog table uses FORMATION_PROFESSIONNELLE (underscore) while
+# the model-spec text uses a space — the table is authoritative; we normalize space
+# to underscore on input.
+_SCORE_VALUES = frozenset({"BASIC", "INTERMEDIATE", "ADVANCED", "EXPERT", "MASTER"})
+_PROFICIENCY_VALUES = frozenset({"A1", "A2", "B1", "B2", "C1", "C2", "NATIVE"})
+_TYPE_EDUCATION_VALUES = frozenset({
+    "LICENCE", "MASTER", "DOCTORAT", "BACHELOR", "MBA",
+    "INGENIEUR", "BTS", "DUT", "FORMATION_PROFESSIONNELLE",
+})
+
+
+def _coerce_enum(value: object, allowed: frozenset[str]) -> str | None:
+    """Uppercase/normalize an enum value; return None if not in ``allowed``.
+
+    Coerces rather than raises so messy LLM extraction never 500s — an off-enum
+    value is simply dropped to None instead of crashing validation.
+    """
+    if value is None:
+        return None
+    s = str(value).strip().upper().replace(" ", "_")
+    return s if s in allowed else None
 
 
 CVStatusEnum = Literal[
@@ -53,6 +77,11 @@ class SkillEntry(BaseModel):
     skill: str | None = None
     score: str | None = None
 
+    @field_validator("score", mode="before")
+    @classmethod
+    def _validate_score(cls, v: object) -> str | None:
+        return _coerce_enum(v, _SCORE_VALUES)
+
 
 class ExperienceEntry(BaseModel):
     role: str | None = None
@@ -64,16 +93,27 @@ class ExperienceEntry(BaseModel):
 
 
 class EducationEntry(BaseModel):
-    establishment: str | None = None
+    institution: str | None = None  # free-text school name (as written on the CV)
+    establishment: str | None = None  # catalog establishment CODE (resolved)
     fieldOfStudy: str | None = None
     typeEducation: str | None = None
     dateGraduation: str | None = None
+
+    @field_validator("typeEducation", mode="before")
+    @classmethod
+    def _validate_type_education(cls, v: object) -> str | None:
+        return _coerce_enum(v, _TYPE_EDUCATION_VALUES)
 
 
 class LanguageEntry(BaseModel):
     language: str | None = None
     proficiency: str | None = None
     languageCode: str | None = None
+
+    @field_validator("proficiency", mode="before")
+    @classmethod
+    def _validate_proficiency(cls, v: object) -> str | None:
+        return _coerce_enum(v, _PROFICIENCY_VALUES)
 
 
 class CertificationEntry(BaseModel):
