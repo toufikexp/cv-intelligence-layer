@@ -46,34 +46,44 @@ Prod has no git, so copy files — but **exclude the two prod-owned files** (`.e
 # Run FROM the dev box, pushing to prod. Adjust user@prodhost:path.
 rsync -av --delete \
   --exclude='.env' \
-  --exclude='docker-compose.yml' \           # keep prod's promoted CPU base file
-  --exclude='Dockerfile' \                   # dev's GPU Dockerfile — prod uses .cpu/.gpu
+  --exclude='docker-compose.yml' \
+  --exclude='Dockerfile' \
   --exclude='.git/' \
   --exclude='__pycache__/' \
   --exclude='data/' \
   --exclude='e2e_tests/' \
   --exclude='tests/' \
   --exclude='*.tar.gz' \
-  /home/user/cv-intelligence-layer/ \
+  --exclude='cv-models/' \
+  --exclude='easyocr-models/' \
+  --exclude='cv_examples/' \
+  --exclude='cv_intelligence_layer.egg-info/' \
+  --exclude='.pytest_cache/' \
+  --exclude='.ruff_cache/' \
+  --exclude='.cursor/' \
+  --exclude='prod_vs_dev_diff*' \
+  ~/cv-intelligence-layer/ \
   user@prodhost:/path/to/prod/cv-intelligence-layer/
 ```
 
 ### Option B — tarball hand-off (air-gapped prod)
 ```bash
-# On dev:
-cd /home/user/cv-intelligence-layer
+# On dev (~/cv-intelligence-layer):
 tar czf /tmp/cvlayer_src.tgz \
   --exclude='.env' --exclude='docker-compose.yml' --exclude='Dockerfile' \
   --exclude='.git' --exclude='__pycache__' --exclude='data' \
   --exclude='e2e_tests' --exclude='tests' --exclude='*.tar.gz' \
   app prompts schemas alembic alembic.ini pyproject.toml \
-  Dockerfile.cpu Dockerfile.gpu \
-  docker-compose.prod.yml docker-compose.gpu.yml \
-  CLAUDE.md SPEC.md
+  Dockerfile.cpu docker-compose.prod.yml \
+  .env.example CLAUDE.md SPEC.md
 
 # transfer /tmp/cvlayer_src.tgz to prod, then on prod:
 tar xzf cvlayer_src.tgz -C /path/to/prod/cv-intelligence-layer/
 ```
+
+> **Note:** `Dockerfile.gpu` and `docker-compose.gpu.yml` exist only in **prod** (created
+> there manually). They are NOT in dev. Do not try to include them in the tarball — prod
+> already has them and they are untouched by this deploy.
 
 > **Why exclude `docker-compose.yml`?** Prod promoted its base compose file to the CPU/8801
 > production config. Dev's base compose file is the GPU dev variant. Overwriting prod's would
