@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Git push policy (MANDATORY)
+
+**Always push to `main`.** Do NOT push to feature/session branches unless the user gives an
+explicit instruction in that message to push to a specific branch. Commit on `main` and
+`git push origin main` by default.
+
 ## What is this
 
 A Python FastAPI middleware between a **Hiring Platform** (external team) and the existing **Semantic Search as a Service** API (`toufikexp/Semantic-Search-as-service`). This layer handles CV-specific business logic; the search platform stays untouched.
