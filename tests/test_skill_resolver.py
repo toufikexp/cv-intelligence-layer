@@ -16,7 +16,7 @@ from app.models.schemas import (
     SkillEntry,
 )
 from app.services.catalog_store import CatalogStore, normalize
-from app.services.skill_resolver import EstablishmentValidationError, enrich_profile
+from app.services.skill_resolver import CatalogValidationError, enrich_profile
 
 
 def _store(
@@ -46,7 +46,7 @@ def test_enrich_fills_language_code() -> None:
             LanguageEntry(language="Arabic", proficiency="NATIVE"),
         ],
     )
-    enrich_profile(profile, store, strict_establishments=False)
+    enrich_profile(profile, store, strict=False)
     assert profile.languages[0].languageCode == "LG1"
     assert profile.languages[1].languageCode is None  # unmatched → None
 
@@ -59,7 +59,7 @@ def test_enrich_resolves_canonical_name_from_seeded_catalog() -> None:
             LanguageEntry(language="Anglais", proficiency="B2"),
         ],
     )
-    enrich_profile(profile, store, strict_establishments=False)
+    enrich_profile(profile, store, strict=False)
     assert profile.languages[0].languageCode == "fr"
     assert profile.languages[1].languageCode == "en"
 
@@ -69,7 +69,7 @@ def test_enrich_does_not_overwrite_existing_language_code() -> None:
     profile = CandidateProfile(
         languages=[LanguageEntry(language="English", languageCode="PRESET")],
     )
-    enrich_profile(profile, store, strict_establishments=False)
+    enrich_profile(profile, store, strict=False)
     assert profile.languages[0].languageCode == "PRESET"
 
 
@@ -78,7 +78,7 @@ def test_enrich_keeps_valid_skill_codes() -> None:
     profile = CandidateProfile(
         skills=[SkillEntry(skill="SK1", score="EXPERT"), SkillEntry(skill="SK2")],
     )
-    enrich_profile(profile, store, strict_establishments=False)
+    enrich_profile(profile, store, strict=False)
     assert [s.skill for s in profile.skills] == ["SK1", "SK2"]
     assert profile.skills[0].score == "EXPERT"
 
@@ -86,18 +86,30 @@ def test_enrich_keeps_valid_skill_codes() -> None:
 def test_enrich_resolves_skill_name_to_code() -> None:
     store = _store(skills={"SK1": "Python"})
     profile = CandidateProfile(skills=[SkillEntry(skill="Python", score="ADVANCED")])
-    enrich_profile(profile, store, strict_establishments=False)
+    enrich_profile(profile, store, strict=False)
     assert profile.skills[0].skill == "SK1"
     assert profile.skills[0].score == "ADVANCED"
 
 
-def test_enrich_drops_off_catalog_skills() -> None:
+def test_enrich_drops_off_catalog_skills_when_tolerant() -> None:
     store = _store(skills={"SK1": "Python"})
     profile = CandidateProfile(
         skills=[SkillEntry(skill="Python"), SkillEntry(skill="Rust")],  # Rust off-catalog
     )
-    enrich_profile(profile, store, strict_establishments=False)
+    enrich_profile(profile, store, strict=False)
     assert [s.skill for s in profile.skills] == ["SK1"]
+
+
+def test_enrich_strict_raises_on_off_catalog_skill() -> None:
+    # A bad skill on create/patch must error, never silently wipe the list.
+    store = _store(skills={"SK1": "Python"})
+    profile = CandidateProfile(
+        skills=[SkillEntry(skill="SK_PYTHON"), SkillEntry(skill="Rust")],
+    )
+    with pytest.raises(CatalogValidationError) as exc_info:
+        enrich_profile(profile, store, strict=True)
+    assert "SK_PYTHON" in str(exc_info.value)
+    assert "Rust" in str(exc_info.value)
 
 
 def test_enrich_resolves_establishment_name_to_code() -> None:
@@ -109,7 +121,7 @@ def test_enrich_resolves_establishment_name_to_code() -> None:
             fieldOfStudy="Télécoms",
         )],
     )
-    enrich_profile(profile, store, strict_establishments=True)
+    enrich_profile(profile, store, strict=True)
     assert profile.educations[0].establishment == "ES1"
     assert profile.educations[0].institution == "université"
 
@@ -119,7 +131,7 @@ def test_enrich_keeps_valid_establishment_code() -> None:
     profile = CandidateProfile(
         educations=[EducationEntry(establishment="ES1", fieldOfStudy="CS")],
     )
-    enrich_profile(profile, store, strict_establishments=True)
+    enrich_profile(profile, store, strict=True)
     assert profile.educations[0].establishment == "ES1"
 
 
@@ -128,8 +140,8 @@ def test_enrich_strict_raises_on_unmatched_establishment() -> None:
     profile = CandidateProfile(
         educations=[EducationEntry(establishment="Some Unknown School")],
     )
-    with pytest.raises(EstablishmentValidationError) as exc_info:
-        enrich_profile(profile, store, strict_establishments=True)
+    with pytest.raises(CatalogValidationError) as exc_info:
+        enrich_profile(profile, store, strict=True)
     assert "Some Unknown School" in str(exc_info.value)
 
 
@@ -141,7 +153,7 @@ def test_enrich_tolerant_keeps_raw_name_on_unmatched_establishment() -> None:
             establishment="Some Unknown School",
         )],
     )
-    enrich_profile(profile, store, strict_establishments=False)
+    enrich_profile(profile, store, strict=False)
     assert profile.educations[0].establishment == "Some Unknown School"
     assert profile.educations[0].institution == "école supérieure"
 
@@ -149,6 +161,6 @@ def test_enrich_tolerant_keeps_raw_name_on_unmatched_establishment() -> None:
 def test_enrich_empty_profile_no_error() -> None:
     store = _store()
     profile = CandidateProfile()
-    enrich_profile(profile, store, strict_establishments=False)
+    enrich_profile(profile, store, strict=False)
     assert profile.skills == []
     assert profile.languages == []

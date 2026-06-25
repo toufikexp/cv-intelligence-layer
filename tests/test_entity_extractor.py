@@ -520,7 +520,7 @@ async def test_extractor_resolves_skill_codes_and_drops_off_catalog() -> None:
         extraction_notes="Clean",
     )
     # Extractor carries names in the `skill` field; resolution happens in enrich_profile.
-    enrich_profile(profile, catalog_store, strict_establishments=False)
+    enrich_profile(profile, catalog_store, strict=False)
 
     assert [(s.skill, s.score) for s in profile.skills] == [("SK1", "EXPERT")]
 

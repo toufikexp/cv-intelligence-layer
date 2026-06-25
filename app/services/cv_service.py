@@ -278,13 +278,21 @@ class CVService:
         db: AsyncSession,
         cv: CVProfile,
         merged_profile: CandidateProfile,
+        raw_text: str | None = None,
     ) -> CVProfile:
-        """Write a merged CandidateProfile back to the CV row (PATCH path)."""
+        """Write a merged CandidateProfile back to the CV row (PATCH path).
+
+        When ``raw_text`` is provided (JSON-created candidates, whose indexed
+        content is a synthetic projection of the profile) it is persisted so the
+        stored text and the Semantic Search document stay in sync after a patch.
+        """
         emp = merged_profile.employee
         cv.profile_data = merged_profile.model_dump(mode="json")
         cv.candidate_name = _employee_full_name(emp)
         cv.email = emp.email if emp else None
         cv.phone = emp.phone if emp else None
+        if raw_text is not None:
+            cv.raw_text = raw_text
         cv.updated_at = datetime.utcnow()
         await db.commit()
         await db.refresh(cv)

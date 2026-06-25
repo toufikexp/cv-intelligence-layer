@@ -287,7 +287,7 @@ def extract_entities(self, payload: dict[str, Any]) -> dict[str, Any]:
     profile = asyncio.run(_extract())
     from app.services.catalog_store import catalog_store
     from app.services.skill_resolver import enrich_profile
-    enrich_profile(profile, catalog_store, strict_establishments=False)
+    enrich_profile(profile, catalog_store, strict=False)
     payload["profile"] = profile.model_dump(mode="json")
     asyncio.run(
         _update_job(

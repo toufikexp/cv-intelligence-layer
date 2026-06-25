@@ -251,12 +251,14 @@ async def test_apply_profile_patch_merges_and_reindexes_sync() -> None:
     cv_service.check_email_conflict = AsyncMock()
     cv_service.mark_index_failed = AsyncMock()
 
-    async def _update_profile_data(*, db, cv, merged_profile):
+    async def _update_profile_data(*, db, cv, merged_profile, raw_text=None):
         cv.profile_data = merged_profile.model_dump(mode="json")
         emp = merged_profile.employee
         cv.candidate_name = f"{emp.firstname} {emp.lastname}".strip() if emp else None
         cv.email = emp.email if emp else None
         cv.phone = emp.phone if emp else None
+        if raw_text is not None:
+            cv.raw_text = raw_text
         return cv
 
     cv_service.update_profile_data = AsyncMock(side_effect=_update_profile_data)

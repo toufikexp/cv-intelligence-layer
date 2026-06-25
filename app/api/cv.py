@@ -30,7 +30,7 @@ from app.services.document_processor import DocumentProcessor
 from app.services.entity_extractor import EntityExtractor, usable_char_count
 from app.services.indexing_bridge import build_search_document, build_synthetic_text
 from app.services.llm_client import get_llm_client
-from app.services.skill_resolver import EstablishmentValidationError, enrich_profile
+from app.services.skill_resolver import CatalogValidationError, enrich_profile
 from app.services.ocr_service import ocr_pdf_pages
 from app.services.search_client import get_ingest_search_client, get_search_client
 from app.tasks.ingestion import start_cv_ingestion
@@ -209,11 +209,11 @@ async def _apply_profile_patch(
     merged = CandidateProfile.model_validate(merged_dict)
 
     try:
-        enrich_profile(merged, catalog_store, strict_establishments=True)
-    except EstablishmentValidationError as exc:
+        enrich_profile(merged, catalog_store, strict=True)
+    except CatalogValidationError as exc:
         raise HTTPException(
             status_code=422,
-            detail={"detail": str(exc), "code": "INVALID_ESTABLISHMENT"},
+            detail={"detail": str(exc), "code": "INVALID_CATALOG_VALUE"},
         ) from exc
 
     email = _employee_email(merged)
@@ -226,16 +226,25 @@ async def _apply_profile_patch(
             exclude_cv_id=cv.cv_id,
         )
 
+    # For JSON-created candidates the indexed content is a synthetic projection
+    # of the profile, so it must be regenerated from the merged profile —
+    # otherwise the embedding stays frozen at create-time and the patch never
+    # reaches Semantic Search. File-based CVs keep their real extracted text.
+    new_raw_text = cv.raw_text or ""
+    if cv.extraction_method == "json_input":
+        new_raw_text = build_synthetic_text(merged)
+
     cv = await cv_service.update_profile_data(
         db=db,
         cv=cv,
         merged_profile=merged,
+        raw_text=new_raw_text,
     )
 
     doc = build_search_document(
         external_id=cv.external_id,
         profile=merged,
-        raw_text=cv.raw_text or "",
+        raw_text=new_raw_text,
         language=cv.language,
     )
     client = get_ingest_search_client()
@@ -356,7 +365,7 @@ async def extract_cv(
                 },
             ) from exc
 
-        enrich_profile(profile, catalog_store, strict_establishments=False)
+        enrich_profile(profile, catalog_store, strict=False)
 
         return CVExtractionResponse(
             profile=profile,
@@ -382,11 +391,11 @@ async def create_cv_from_json(
     """Create a candidate profile from structured JSON (no CV document)."""
     profile = req.profile
     try:
-        enrich_profile(profile, catalog_store, strict_establishments=True)
-    except EstablishmentValidationError as exc:
+        enrich_profile(profile, catalog_store, strict=True)
+    except CatalogValidationError as exc:
         raise HTTPException(
             status_code=422,
-            detail={"detail": str(exc), "code": "INVALID_ESTABLISHMENT"},
+            detail={"detail": str(exc), "code": "INVALID_CATALOG_VALUE"},
         ) from exc
 
     synthetic_text = build_synthetic_text(profile)
