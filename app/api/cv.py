@@ -30,7 +30,7 @@ from app.services.document_processor import DocumentProcessor
 from app.services.entity_extractor import EntityExtractor, usable_char_count
 from app.services.indexing_bridge import build_search_document, build_synthetic_text
 from app.services.llm_client import get_llm_client
-from app.services.skill_resolver import enrich_profile
+from app.services.skill_resolver import EstablishmentValidationError, enrich_profile
 from app.services.ocr_service import ocr_pdf_pages
 from app.services.search_client import get_ingest_search_client, get_search_client
 from app.tasks.ingestion import start_cv_ingestion
@@ -208,6 +208,14 @@ async def _apply_profile_patch(
     merged_dict.update(patch_dict)
     merged = CandidateProfile.model_validate(merged_dict)
 
+    try:
+        enrich_profile(merged, catalog_store, strict_establishments=True)
+    except EstablishmentValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"detail": str(exc), "code": "INVALID_ESTABLISHMENT"},
+        ) from exc
+
     email = _employee_email(merged)
     old_email = cv.email
     if email and email != old_email:
@@ -348,7 +356,7 @@ async def extract_cv(
                 },
             ) from exc
 
-        enrich_profile(profile, catalog_store)
+        enrich_profile(profile, catalog_store, strict_establishments=False)
 
         return CVExtractionResponse(
             profile=profile,
@@ -373,7 +381,13 @@ async def create_cv_from_json(
 ) -> CVProfileResponse:
     """Create a candidate profile from structured JSON (no CV document)."""
     profile = req.profile
-    enrich_profile(profile, catalog_store)
+    try:
+        enrich_profile(profile, catalog_store, strict_establishments=True)
+    except EstablishmentValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"detail": str(exc), "code": "INVALID_ESTABLISHMENT"},
+        ) from exc
 
     synthetic_text = build_synthetic_text(profile)
     file_hash = hashlib.sha256(synthetic_text.encode()).hexdigest()

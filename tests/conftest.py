@@ -92,6 +92,7 @@ def fake_candidate_profile() -> CandidateProfile:
         ],
         educations=[
             EducationEntry(
+                institution="université",
                 establishment="USTHB", typeEducation="MASTER",
                 fieldOfStudy="Computer Science", dateGraduation="2016",
             ),

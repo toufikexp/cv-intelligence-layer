@@ -32,17 +32,19 @@ def _skill_names(profile: CandidateProfile) -> list[str]:
     return names
 
 
-def _establishment_label(institution: str | None, establishment_code: str | None) -> str:
+def _establishment_label(establishment: str | None) -> str:
     """Human-readable school name for Semantic Search (never the code).
 
-    Prefers the free-text ``institution`` (as written on the CV); falls back to
-    the catalog name resolved from the establishment ``code``.
+    ``establishment`` is either a catalog code (resolved profiles) or a raw
+    school name (extract API tolerance). Returns the readable name in both
+    cases.
     """
-    if institution:
-        return institution
-    if establishment_code:
-        return catalog_store.establishment_name(establishment_code) or ""
-    return ""
+    if not establishment:
+        return ""
+    name = catalog_store.establishment_name(establishment)
+    if name:
+        return name
+    return establishment
 
 
 def _estimate_experience_years(profile: CandidateProfile) -> int:
@@ -116,7 +118,7 @@ def build_synthetic_text(profile: CandidateProfile) -> str:
     if profile.educations:
         lines = ["Education:"]
         for e in profile.educations:
-            school = _establishment_label(e.institution, e.establishment)
+            school = _establishment_label(e.establishment)
             line = f"- {e.typeEducation or ''} {e.fieldOfStudy or ''} — {school}"
             if e.dateGraduation:
                 line += f" ({e.dateGraduation})"

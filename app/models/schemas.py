@@ -93,8 +93,8 @@ class ExperienceEntry(BaseModel):
 
 
 class EducationEntry(BaseModel):
-    institution: str | None = None  # free-text school name (as written on the CV)
-    establishment: str | None = None  # catalog establishment CODE (resolved)
+    institution: str | None = None  # type of institution (école, université, centre, collège …)
+    establishment: str | None = None  # catalog code; raw name allowed on extract only
     fieldOfStudy: str | None = None
     typeEducation: str | None = None
     dateGraduation: str | None = None

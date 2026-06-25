@@ -32,7 +32,8 @@ Return a JSON object matching this exact schema:
   ],
   "educations": [
     {
-      "establishment": "University or school name (string — pick from the predefined list below when a clear match exists; otherwise use the exact name from the CV)",
+      "institution": "Type of institution: école, école supérieure, université, centre de formation, collège, institut, lycée (string or null)",
+      "establishment": "School or university name — find the CLOSEST MATCH from the predefined establishments list below using SIMILARITY (not exact character matching). If no similar name exists in the list, use the exact name as written in the CV (string)",
       "fieldOfStudy": "Field of study (string or null)",
       "typeEducation": "LICENCE | MASTER | DOCTORAT | BACHELOR | MBA | INGENIEUR | BTS | DUT | FORMATION_PROFESSIONNELLE",
       "dateGraduation": "Graduation year YYYY (string or null)"
@@ -76,7 +77,8 @@ Rules:
 10. Skill score: for each skill, assess proficiency from the CV context using ONLY these values: BASIC, INTERMEDIATE, ADVANCED, EXPERT, MASTER. Base your assessment on evidence in the CV (years of use, project depth, certifications). If uncertain, use INTERMEDIATE.
 11. Languages: a predefined list of language names is provided below. For each language in the CV, output the name copied **exactly** from that list when it matches; if the CV's language is not in the list, output its English name. Assess proficiency using ONLY these CEFR values: A1, A2, B1, B2, C1, C2, NATIVE. Map common descriptions: "natif/maternelle" → NATIVE, "courant/fluent" → C1, "avancé/advanced" → B2, "intermédiaire/intermediate" → B1, "débutant/beginner/basic" → A1.
 12. Education type: use ONLY these values: LICENCE, MASTER, DOCTORAT, BACHELOR, MBA, INGENIEUR, BTS, DUT, FORMATION_PROFESSIONNELLE. Map common terms: "BSc/BA" → BACHELOR, "MSc/MA" → MASTER, "PhD" → DOCTORAT, "Diplôme d'ingénieur" → INGENIEUR.
-13. Establishment: pick from the predefined establishments list below when the CV's institution clearly matches one. If no match, use the institution name exactly as written in the CV.
+13. Establishment: find the CLOSEST MATCH from the predefined establishments list below using SIMILARITY (abbreviations, partial names, French/Arabic variants all count as matches — e.g. "USTHB" matches "Université des Sciences et de la Technologie Houari Boumediene (USTHB)", "ESI" matches "École nationale Supérieure d'Informatique (ESI)"). Do NOT require exact character-by-character equality. If no similar name exists in the list at all, use the school/university name exactly as written in the CV.
+14. Institution: this field is the TYPE of institution (école, école supérieure, université, centre de formation, collège, institut, lycée), NOT the school name. Set it based on what kind of institution it is. Set to null if uncertain.
 
 Controlled skill vocabulary (canonical names; use exact spelling when a match is clear):
 {skills_catalog}
@@ -166,12 +168,14 @@ Arabe (natif), Français (courant), Anglais (intermédiaire)
   ],
   "educations": [
     {
+      "institution": "université",
       "establishment": "Université des Sciences et de la Technologie Houari Boumediene (USTHB)",
       "fieldOfStudy": "Informatique",
       "typeEducation": "MASTER",
       "dateGraduation": "2018"
     },
     {
+      "institution": "université",
       "establishment": "Université des Sciences et de la Technologie Houari Boumediene (USTHB)",
       "fieldOfStudy": "Mathématiques et Informatique",
       "typeEducation": "LICENCE",
@@ -263,6 +267,7 @@ AWS Solutions Architect Associate (2023)
   ],
   "educations": [
     {
+      "institution": "université",
       "establishment": "University of Manchester",
       "fieldOfStudy": "Computer Science",
       "typeEducation": "BACHELOR",

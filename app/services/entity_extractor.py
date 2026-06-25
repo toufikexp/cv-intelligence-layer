@@ -327,6 +327,8 @@ def _normalize_llm_output(data: dict[str, Any]) -> dict[str, Any]:
         data["experiences"] = []
 
     # educations: normalize field name aliases
+    # institution = type of institution (école, université, centre, etc.)
+    # establishment = school/university name (Gemini similarity-matched or raw)
     edu_key = "educations" if "educations" in data else "education"
     educations = data.pop(edu_key, None) or []
     if isinstance(educations, list):
@@ -334,18 +336,17 @@ def _normalize_llm_output(data: dict[str, Any]) -> dict[str, Any]:
         for edu in educations:
             if not isinstance(edu, dict):
                 continue
-            # institution = free-text school name (kept as written on the CV);
-            # establishment = catalog CODE, resolved later by enrich_profile.
-            if not edu.get("institution"):
-                edu["institution"] = (
+            if "institution" not in edu:
+                edu["institution"] = edu.pop("institution_type", None)
+            if not edu.get("establishment"):
+                edu["establishment"] = (
                     edu.pop("school", None)
                     or edu.pop("university", None)
-                    # Gemini may put the name in 'establishment'; treat it as the
-                    # free-text name — enrich_profile resolves the code from it.
-                    or edu.pop("establishment", None)
+                    or edu.pop("school_name", None)
                     or ""
                 )
-            edu.pop("establishment", None)
+            for alias in ("school", "university", "school_name", "institution_type"):
+                edu.pop(alias, None)
             if "fieldOfStudy" not in edu and "field_of_study" in edu:
                 edu["fieldOfStudy"] = edu.pop("field_of_study")
             if "fieldOfStudy" not in edu and "field" in edu:
@@ -354,7 +355,7 @@ def _normalize_llm_output(data: dict[str, Any]) -> dict[str, Any]:
                 edu["typeEducation"] = edu.pop("degree")
             if "dateGraduation" not in edu and "year" in edu:
                 edu["dateGraduation"] = edu.pop("year")
-            if not edu.get("institution"):
+            if not edu.get("establishment"):
                 continue
             normalized_edu.append(edu)
         data["educations"] = normalized_edu

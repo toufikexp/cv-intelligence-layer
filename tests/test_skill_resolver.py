@@ -1,11 +1,13 @@
 """Tests for enrich_profile.
 
 enrich_profile is the single catalog-resolution chokepoint: it validates skills
-(name->code, valid code kept, off-catalog dropped), resolves establishment codes
-(institution free-text -> establishment code), and fills language codes.
+(name->code, valid code kept, off-catalog dropped), resolves establishment names
+to codes (similarity-matched name -> code), and fills language codes.
 """
 
 from __future__ import annotations
+
+import pytest
 
 from app.models.schemas import (
     CandidateProfile,
@@ -14,7 +16,7 @@ from app.models.schemas import (
     SkillEntry,
 )
 from app.services.catalog_store import CatalogStore, normalize
-from app.services.skill_resolver import enrich_profile
+from app.services.skill_resolver import EstablishmentValidationError, enrich_profile
 
 
 def _store(
@@ -44,14 +46,12 @@ def test_enrich_fills_language_code() -> None:
             LanguageEntry(language="Arabic", proficiency="NATIVE"),
         ],
     )
-    enrich_profile(profile, store)
+    enrich_profile(profile, store, strict_establishments=False)
     assert profile.languages[0].languageCode == "LG1"
     assert profile.languages[1].languageCode is None  # unmatched → None
 
 
 def test_enrich_resolves_canonical_name_from_seeded_catalog() -> None:
-    # Mirrors the real seed (French names). When Gemini picks the canonical name
-    # from the predefined list ("Français"), it resolves to the catalog code.
     store = _store(langs={"fr": "Français", "en": "Anglais", "dz": "Arabe"})
     profile = CandidateProfile(
         languages=[
@@ -59,7 +59,7 @@ def test_enrich_resolves_canonical_name_from_seeded_catalog() -> None:
             LanguageEntry(language="Anglais", proficiency="B2"),
         ],
     )
-    enrich_profile(profile, store)
+    enrich_profile(profile, store, strict_establishments=False)
     assert profile.languages[0].languageCode == "fr"
     assert profile.languages[1].languageCode == "en"
 
@@ -69,7 +69,7 @@ def test_enrich_does_not_overwrite_existing_language_code() -> None:
     profile = CandidateProfile(
         languages=[LanguageEntry(language="English", languageCode="PRESET")],
     )
-    enrich_profile(profile, store)
+    enrich_profile(profile, store, strict_establishments=False)
     assert profile.languages[0].languageCode == "PRESET"
 
 
@@ -78,7 +78,7 @@ def test_enrich_keeps_valid_skill_codes() -> None:
     profile = CandidateProfile(
         skills=[SkillEntry(skill="SK1", score="EXPERT"), SkillEntry(skill="SK2")],
     )
-    enrich_profile(profile, store)
+    enrich_profile(profile, store, strict_establishments=False)
     assert [s.skill for s in profile.skills] == ["SK1", "SK2"]
     assert profile.skills[0].score == "EXPERT"
 
@@ -86,7 +86,7 @@ def test_enrich_keeps_valid_skill_codes() -> None:
 def test_enrich_resolves_skill_name_to_code() -> None:
     store = _store(skills={"SK1": "Python"})
     profile = CandidateProfile(skills=[SkillEntry(skill="Python", score="ADVANCED")])
-    enrich_profile(profile, store)
+    enrich_profile(profile, store, strict_establishments=False)
     assert profile.skills[0].skill == "SK1"
     assert profile.skills[0].score == "ADVANCED"
 
@@ -96,33 +96,59 @@ def test_enrich_drops_off_catalog_skills() -> None:
     profile = CandidateProfile(
         skills=[SkillEntry(skill="Python"), SkillEntry(skill="Rust")],  # Rust off-catalog
     )
-    enrich_profile(profile, store)
+    enrich_profile(profile, store, strict_establishments=False)
     assert [s.skill for s in profile.skills] == ["SK1"]
 
 
-def test_enrich_resolves_establishment_code_from_institution() -> None:
+def test_enrich_resolves_establishment_name_to_code() -> None:
     store = _store(estabs={"ES1": "USTHB"})
     profile = CandidateProfile(
-        educations=[EducationEntry(institution="USTHB", fieldOfStudy="Télécoms")],
+        educations=[EducationEntry(
+            institution="université",
+            establishment="USTHB",
+            fieldOfStudy="Télécoms",
+        )],
     )
-    enrich_profile(profile, store)
+    enrich_profile(profile, store, strict_establishments=True)
     assert profile.educations[0].establishment == "ES1"
-    assert profile.educations[0].institution == "USTHB"  # free text kept
+    assert profile.educations[0].institution == "université"
 
 
-def test_enrich_unmatched_establishment_is_none() -> None:
+def test_enrich_keeps_valid_establishment_code() -> None:
     store = _store(estabs={"ES1": "USTHB"})
     profile = CandidateProfile(
-        educations=[EducationEntry(institution="Some Unknown School")],
+        educations=[EducationEntry(establishment="ES1", fieldOfStudy="CS")],
     )
-    enrich_profile(profile, store)
-    assert profile.educations[0].establishment is None
-    assert profile.educations[0].institution == "Some Unknown School"
+    enrich_profile(profile, store, strict_establishments=True)
+    assert profile.educations[0].establishment == "ES1"
+
+
+def test_enrich_strict_raises_on_unmatched_establishment() -> None:
+    store = _store(estabs={"ES1": "USTHB"})
+    profile = CandidateProfile(
+        educations=[EducationEntry(establishment="Some Unknown School")],
+    )
+    with pytest.raises(EstablishmentValidationError) as exc_info:
+        enrich_profile(profile, store, strict_establishments=True)
+    assert "Some Unknown School" in str(exc_info.value)
+
+
+def test_enrich_tolerant_keeps_raw_name_on_unmatched_establishment() -> None:
+    store = _store(estabs={"ES1": "USTHB"})
+    profile = CandidateProfile(
+        educations=[EducationEntry(
+            institution="école supérieure",
+            establishment="Some Unknown School",
+        )],
+    )
+    enrich_profile(profile, store, strict_establishments=False)
+    assert profile.educations[0].establishment == "Some Unknown School"
+    assert profile.educations[0].institution == "école supérieure"
 
 
 def test_enrich_empty_profile_no_error() -> None:
     store = _store()
     profile = CandidateProfile()
-    enrich_profile(profile, store)
+    enrich_profile(profile, store, strict_establishments=False)
     assert profile.skills == []
     assert profile.languages == []

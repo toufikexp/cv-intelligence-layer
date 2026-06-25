@@ -126,7 +126,7 @@ class RankingEngine:
                             for e in profile.experiences
                         ),
                         "education_details": "\n".join(
-                            f"- {e.typeEducation or ''} {e.fieldOfStudy or ''} — {_establishment_label(e.institution, e.establishment)} ({e.dateGraduation or ''})"
+                            f"- {e.typeEducation or ''} {e.fieldOfStudy or ''} — {_establishment_label(e.establishment)} ({e.dateGraduation or ''})"
                             for e in profile.educations
                         ),
                         "achievements_details": "\n".join(

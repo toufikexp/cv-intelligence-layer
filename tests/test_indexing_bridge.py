@@ -127,7 +127,8 @@ def test_build_synthetic_text_full_profile() -> None:
         ],
         educations=[
             EducationEntry(
-                institution="USTHB",
+                institution="université",
+                establishment="USTHB",
                 typeEducation="MASTER",
                 fieldOfStudy="CS",
                 dateGraduation="2016",
