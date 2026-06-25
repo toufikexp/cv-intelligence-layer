@@ -294,11 +294,57 @@ async def test_apply_profile_patch_merges_and_reindexes_sync() -> None:
     assert kwargs["collection_id"] == cv.collection_id
     assert len(kwargs["documents"]) == 1
     assert kwargs["documents"][0]["external_id"] == cv.external_id
+    # File-based CVs: search content must include a profile projection so
+    # any metadata change produces a different content hash in SS.
+    doc_content = kwargs["documents"][0]["content"]
+    assert "Amina est ingénieure data." in doc_content  # original raw text
+    assert "Senior Data Engineer profile." in doc_content  # patched summary
     mock_client.aclose.assert_awaited_once()
 
     assert result.cv_id == cv.cv_id
     assert result.external_id == cv.external_id
     assert result.profile is not None
+
+
+@pytest.mark.asyncio
+async def test_apply_profile_patch_json_input_regenerates_synthetic_text() -> None:
+    """For json_input CVs the search content is purely synthetic (no raw CV text)."""
+    cv = _ready_cv(extraction_method="json_input", raw_text="old synthetic text")
+    cv_service = MagicMock(spec=CVService)
+    cv_service.check_email_conflict = AsyncMock()
+    cv_service.mark_index_failed = AsyncMock()
+
+    async def _update_profile_data(*, db, cv, merged_profile, raw_text=None):
+        cv.profile_data = merged_profile.model_dump(mode="json")
+        if raw_text is not None:
+            cv.raw_text = raw_text
+        return cv
+
+    cv_service.update_profile_data = AsyncMock(side_effect=_update_profile_data)
+
+    mock_client = MagicMock()
+    mock_client.ingest_documents = AsyncMock(return_value={"job_id": "stub"})
+    mock_client.aclose = AsyncMock()
+
+    with patch("app.api.cv.get_ingest_search_client", return_value=mock_client):
+        await _apply_profile_patch(
+            db=AsyncMock(),
+            cv_service=cv_service,
+            cv=cv,
+            patch=CandidateProfilePatch(summary="Updated via JSON patch."),
+        )
+
+    # raw_text in DB must be regenerated (not the old synthetic text)
+    cv_service.update_profile_data.assert_awaited_once()
+    call_kwargs = cv_service.update_profile_data.call_args[1]
+    assert call_kwargs["raw_text"] is not None
+    assert "old synthetic text" not in call_kwargs["raw_text"]
+    assert "Updated via JSON patch." in call_kwargs["raw_text"]
+
+    # search content = the new synthetic text (no double-projection)
+    _, ingest_kwargs = mock_client.ingest_documents.call_args
+    doc_content = ingest_kwargs["documents"][0]["content"]
+    assert "Updated via JSON patch." in doc_content
 
 
 @pytest.mark.asyncio

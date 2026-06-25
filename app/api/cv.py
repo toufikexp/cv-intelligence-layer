@@ -227,12 +227,12 @@ async def _apply_profile_patch(
         )
 
     # For JSON-created candidates the indexed content is a synthetic projection
-    # of the profile, so it must be regenerated from the merged profile —
-    # otherwise the embedding stays frozen at create-time and the patch never
-    # reaches Semantic Search. File-based CVs keep their real extracted text.
-    new_raw_text = cv.raw_text or ""
+    # of the profile, so it must be regenerated from the merged profile.
+    # File-based CVs keep their real extracted text in the DB unchanged.
     if cv.extraction_method == "json_input":
-        new_raw_text = build_synthetic_text(merged)
+        new_raw_text: str | None = build_synthetic_text(merged)
+    else:
+        new_raw_text = None
 
     cv = await cv_service.update_profile_data(
         db=db,
@@ -241,10 +241,19 @@ async def _apply_profile_patch(
         raw_text=new_raw_text,
     )
 
+    # Build search content.  For json_input the synthetic text IS the full
+    # document.  For file-based CVs, append a profile projection so any
+    # metadata change (skills, education, …) produces a different content
+    # hash — otherwise SS deduplicates on the unchanged raw text and skips
+    # re-indexing entirely.
+    search_content = cv.raw_text or ""
+    if cv.extraction_method != "json_input":
+        search_content = f"{search_content}\n\n{build_synthetic_text(merged)}"
+
     doc = build_search_document(
         external_id=cv.external_id,
         profile=merged,
-        raw_text=new_raw_text,
+        raw_text=search_content,
         language=cv.language,
     )
     client = get_ingest_search_client()
