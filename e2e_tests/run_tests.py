@@ -48,39 +48,74 @@ REPORT_DIR = Path(__file__).parent / "reports"
 # uses generic names ("Java", "Python"). This maps test skills to real
 # catalog entries so POST /candidates (strict=True) doesn't 422.
 _CATALOG_SKILLS: list[str] = []
+_CATALOG_ESTABLISHMENTS: list[str] = []
+
+_SEED = Path(__file__).parent.parent / "alembic" / "versions" / "0006_seed_skillconnect_catalogs.py"
+
+
+def _parse_seed_block(var_name: str) -> list[str]:
+    """Parse the name (2nd tuple element) from a `VAR: ... = [ (...), ]` block in the seed."""
+    import re
+    if not _SEED.exists():
+        return []
+    text = _SEED.read_text()
+    start = re.search(rf"{var_name}\s*[:=].*?\[", text, re.DOTALL)
+    if not start:
+        return []
+    names: list[str] = []
+    # Match the 2nd element (name) of a (code, name, ...) tuple, single- or double-quoted.
+    row = re.compile(r"""\s*\(\s*(['"])(?:[^'"]+)\1\s*,\s*(['"])(.*?)\2""")
+    for line in text[start.end():].splitlines():
+        if line.strip().startswith("]"):
+            break
+        m = row.match(line)
+        if m:
+            names.append(m.group(3))
+    return names
 
 
 def _load_catalog_skills() -> list[str]:
     """Load catalog skill names from the seed migration (works offline, no DB needed)."""
     global _CATALOG_SKILLS
-    if _CATALOG_SKILLS:
-        return _CATALOG_SKILLS
-    import re
-    seed = Path(__file__).parent.parent / "alembic" / "versions" / "0006_seed_skillconnect_catalogs.py"
-    if not seed.exists():
-        return []
-    names: list[str] = []
-    for line in seed.read_text().splitlines():
-        m = re.match(r"\s*\('([^']+)',\s*'([^']*)',", line)
-        if m:
-            names.append(m.group(2))
-    _CATALOG_SKILLS = names
+    if not _CATALOG_SKILLS:
+        _CATALOG_SKILLS = _parse_seed_block("SKILLS")
     return _CATALOG_SKILLS
 
 
+def _load_catalog_establishments() -> list[str]:
+    """Load catalog establishment names from the seed migration (offline, no DB)."""
+    global _CATALOG_ESTABLISHMENTS
+    if not _CATALOG_ESTABLISHMENTS:
+        _CATALOG_ESTABLISHMENTS = _parse_seed_block("ESTABLISHMENTS")
+    return _CATALOG_ESTABLISHMENTS
+
+
 def _remap_profile_skills(profile: dict) -> dict:
-    """Replace test profile skills with real catalog entries (round-robin)."""
-    catalog = _load_catalog_skills()
-    if not catalog:
-        return profile
+    """Replace test skills AND education establishments with real catalog entries.
+
+    POST /candidates validates both with strict=True, so generic test values
+    (Java, Imperial College London) must be remapped to real catalog names.
+    """
+    skills_cat = _load_catalog_skills()
+    estab_cat = _load_catalog_establishments()
     profile = dict(profile)
+
     skills = profile.get("skills", [])
-    if skills:
-        remapped = []
-        for i, sk in enumerate(skills):
-            cat_name = catalog[i % len(catalog)]
-            remapped.append({"skill": cat_name, "score": sk.get("score", "INTERMEDIATE")})
-        profile["skills"] = remapped
+    if skills and skills_cat:
+        profile["skills"] = [
+            {"skill": skills_cat[i % len(skills_cat)], "score": sk.get("score", "INTERMEDIATE")}
+            for i, sk in enumerate(skills)
+        ]
+
+    educations = profile.get("educations", [])
+    if educations and estab_cat:
+        remapped_edu = []
+        for i, edu in enumerate(educations):
+            edu = dict(edu)
+            edu["establishment"] = estab_cat[i % len(estab_cat)]
+            remapped_edu.append(edu)
+        profile["educations"] = remapped_edu
+
     return profile
 
 
