@@ -43,6 +43,46 @@ import httpx
 DATA_DIR = Path(__file__).parent / "data"
 REPORT_DIR = Path(__file__).parent / "reports"
 
+# ── Catalog-aware skill remapping ──────────────────────────────
+# The SkillConnect catalog has 221 Ooredoo-specific skills. Test data
+# uses generic names ("Java", "Python"). This maps test skills to real
+# catalog entries so POST /candidates (strict=True) doesn't 422.
+_CATALOG_SKILLS: list[str] = []
+
+
+def _load_catalog_skills() -> list[str]:
+    """Load catalog skill names from the seed migration (works offline, no DB needed)."""
+    global _CATALOG_SKILLS
+    if _CATALOG_SKILLS:
+        return _CATALOG_SKILLS
+    import re
+    seed = Path(__file__).parent.parent / "alembic" / "versions" / "0006_seed_skillconnect_catalogs.py"
+    if not seed.exists():
+        return []
+    names: list[str] = []
+    for line in seed.read_text().splitlines():
+        m = re.match(r"\s*\('([^']+)',\s*'([^']*)',", line)
+        if m:
+            names.append(m.group(2))
+    _CATALOG_SKILLS = names
+    return _CATALOG_SKILLS
+
+
+def _remap_profile_skills(profile: dict) -> dict:
+    """Replace test profile skills with real catalog entries (round-robin)."""
+    catalog = _load_catalog_skills()
+    if not catalog:
+        return profile
+    profile = dict(profile)
+    skills = profile.get("skills", [])
+    if skills:
+        remapped = []
+        for i, sk in enumerate(skills):
+            cat_name = catalog[i % len(catalog)]
+            remapped.append({"skill": cat_name, "score": sk.get("score", "INTERMEDIATE")})
+        profile["skills"] = remapped
+    return profile
+
 
 # ────────────────────────────────────────────────────────────
 # Metrics
@@ -292,7 +332,8 @@ def test_create(
     print(f"  Creating {len(candidates)} candidates...")
     for i, cv in enumerate(candidates, 1):
         ext_id = f"E2E-{i:04d}"
-        res, data = client.create_candidate(collection_id, ext_id, cv["profile"])
+        profile = _remap_profile_skills(cv["profile"])
+        res, data = client.create_candidate(collection_id, ext_id, profile)
         metrics.results.append(res)
 
         if res.success and data:
@@ -315,9 +356,14 @@ def test_update(
     metrics = TestGroupMetrics(group="update")
     to_update = created[:count]
 
+    catalog = _load_catalog_skills()
+    patch_skills = [
+        {"skill": catalog[0] if catalog else "Python", "score": "ADVANCED"},
+        {"skill": catalog[1] if catalog else "Leadership", "score": "EXPERT"},
+    ]
     patches = [
         {"summary": "Updated summary via E2E test — experienced professional with diverse skills."},
-        {"skills": [{"skill": "Python", "score": "ADVANCED"}, {"skill": "Leadership", "score": "EXPERT"}]},
+        {"skills": patch_skills},
         {"employee": {"workingSite": "Remote"}},
         {"employee": {"function": "Senior Consultant"}},
         {"employee": {"phone": "+33 6 00 00 00 00"}},
