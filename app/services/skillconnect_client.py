@@ -10,20 +10,29 @@ from app.config import get_settings
 
 
 def _insecure_ssl_context() -> ssl.SSLContext:
-    """SSL context that skips verification (TLS-intercepting corporate proxies)."""
+    """SSL context for the SkillConnect host's legacy TLS.
+
+    Skips certificate verification AND lowers the OpenSSL security level to 1.
+    The Ooredoo ``elevate`` endpoint negotiates a weak (<2048-bit) Diffie-Hellman
+    key that OpenSSL 3's default security level 2 rejects with
+    ``DH_KEY_TOO_SMALL``; ``SECLEVEL=1`` accepts it. Scoped to this client only.
+    """
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
+    ctx.set_ciphers("DEFAULT@SECLEVEL=1")
     return ctx
 
 
 class SkillConnectClient:
     """HTTP client for the SkillConnect (Ooredoo HR) catalog API.
 
-    The catalog endpoint is an unauthenticated external GET. Because the host is
-    external it may sit behind the corporate proxy / TLS interception, so this
-    client honors proxy env vars (``trust_env``) plus an explicit proxy override
-    and an SSL-verification toggle — mirroring the ``LLM_SSL_VERIFY`` pattern.
+    The catalog endpoint is an unauthenticated GET. ``elevate.ooredoo.dz`` is an
+    INTERNAL host, reachable directly — like the Semantic Search service, this
+    client does NOT consult the environment proxy vars (no ``trust_env``), so the
+    request never gets routed through the corporate internet proxy. An explicit
+    ``SKILLCONNECT_PROXY`` may still be set if a future deployment needs one. The
+    SSL-verification toggle mirrors the ``LLM_SSL_VERIFY`` pattern.
     """
 
     def __init__(
@@ -38,7 +47,6 @@ class SkillConnectClient:
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
             timeout=httpx.Timeout(30.0),
-            trust_env=True,
             verify=verify,
             proxy=proxy,
         )
