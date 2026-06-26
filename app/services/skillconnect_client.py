@@ -28,11 +28,13 @@ class SkillConnectClient:
     """HTTP client for the SkillConnect (Ooredoo HR) catalog API.
 
     The catalog endpoint is an unauthenticated GET. ``elevate.ooredoo.dz`` is an
-    INTERNAL host, reachable directly — like the Semantic Search service, this
-    client does NOT consult the environment proxy vars (no ``trust_env``), so the
-    request never gets routed through the corporate internet proxy. An explicit
-    ``SKILLCONNECT_PROXY`` may still be set if a future deployment needs one. The
-    SSL-verification toggle mirrors the ``LLM_SSL_VERIFY`` pattern.
+    INTERNAL host, reachable directly, so this client sets ``trust_env=False`` to
+    ignore the ambient ``HTTPS_PROXY`` and connect directly — the corporate
+    internet proxy cannot reach this internal host and times out its TLS
+    handshake. (httpx defaults ``trust_env`` to True, so it must be disabled
+    explicitly; merely omitting it still routes through the env proxy.) An
+    explicit ``SKILLCONNECT_PROXY`` may still be set if a future deployment needs
+    one. The SSL-verification toggle mirrors the ``LLM_SSL_VERIFY`` pattern.
     """
 
     def __init__(
@@ -47,6 +49,7 @@ class SkillConnectClient:
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
             timeout=httpx.Timeout(30.0),
+            trust_env=False,
             verify=verify,
             proxy=proxy,
         )
